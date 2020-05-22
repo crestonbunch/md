@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::ops::Add;
 
 use pomelo::pomelo;
@@ -42,24 +43,24 @@ impl Add for Span {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        if self.start_line < other.start_line {
-            Span::multi_line(
+        match self.start_line.cmp(&other.start_line) {
+            Ordering::Less => Span::multi_line(
                 self.start_line,
                 other.end_line,
                 self.start_col,
                 other.end_col,
-            )
-        } else if self.start_line > other.start_line {
-            Span::multi_line(
+            ),
+            Ordering::Greater => Span::multi_line(
                 other.start_line,
                 self.end_line,
                 other.start_col,
                 self.end_col,
-            )
-        } else {
-            let start_col = std::cmp::min(self.start_col, other.start_col);
-            let end_col = std::cmp::max(self.end_col, other.end_col);
-            Span::multi_line(self.start_line, self.start_line, start_col, end_col)
+            ),
+            Ordering::Equal => {
+                let start_col = std::cmp::min(self.start_col, other.start_col);
+                let end_col = std::cmp::max(self.end_col, other.end_col);
+                Span::multi_line(self.start_line, self.start_line, start_col, end_col)
+            }
         }
     }
 }
