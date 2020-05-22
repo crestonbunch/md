@@ -7,7 +7,7 @@ enum Terminal {
     NewLine,
     PlainText,
     Whitespace,
-    Hash1,
+    Hash(usize),
 }
 
 impl Terminal {
@@ -16,15 +16,20 @@ impl Terminal {
             Terminal::NewLine => Token::NewLine((span, src.to_string())),
             Terminal::PlainText => Token::PlainText((span, src.to_string())),
             Terminal::Whitespace => Token::Whitespace((span, src.to_string())),
-            Terminal::Hash1 => Token::Hash1((span, src.to_string())),
+            Terminal::Hash(s) => Token::Hash((span, (s, src.to_string()))),
         }
     }
 }
 
-const TOKEN_REGEX: [(&str, Terminal); 3] = [
+const TOKEN_REGEX: [(&str, Terminal); 8] = [
     (r"^\n|\r\n|\r", Terminal::NewLine),
     (r"^[ \t]+", Terminal::Whitespace),
-    (r"^#", Terminal::Hash1),
+    (r"^#{6,6}", Terminal::Hash(6)),
+    (r"^#{5,5}", Terminal::Hash(5)),
+    (r"^#{4,4}", Terminal::Hash(4)),
+    (r"^#{3,3}", Terminal::Hash(3)),
+    (r"^#{2,2}", Terminal::Hash(2)),
+    (r"^#", Terminal::Hash(1)),
     // Anything not matched is Token::PlainText
 ];
 
@@ -62,7 +67,7 @@ impl<'a> Tokenizer {
                 // When we hit a newline, push the tokens onto the line
                 // vec, then start accumulating a new line.
                 Terminal::NewLine => {
-                    let span = Span::single_line(line_no, start_col, end_col + 1);
+                    let span = Span::single_line(line_no, start_col, end_col);
                     lines.push(Tokenizer::line_token(span, tokens));
                     tokens = vec![];
                     line_no += 1;
@@ -124,7 +129,7 @@ impl<'a> Tokenizer {
         let line_span = Span::single_line(token_span.start_line, 0, token_span.end_col);
         match tokens.first() {
             None => Token::LineEmpty(line_span),
-            Some(Token::Hash1(_)) => Token::LineHeader((line_span, (1, tokens))),
+            Some(Token::Hash((_, (s, _)))) => Token::LineHeader((line_span, (*s, tokens))),
             Some(_) => Token::LinePlain((line_span, tokens)),
         }
     }
@@ -149,7 +154,7 @@ mod tests {
                     (
                         1,
                         vec![
-                            Token::Hash1((Span::single_line(0, 0, 1), "#".into())),
+                            Token::Hash((Span::single_line(0, 0, 1), (1, "#".into()))),
                             Token::Whitespace((Span::single_line(0, 1, 2), " ".into())),
                             Token::PlainText((Span::single_line(0, 2, 8), "Hello,".into())),
                             Token::Whitespace((Span::single_line(0, 8, 9), " ".into())),

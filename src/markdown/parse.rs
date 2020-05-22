@@ -80,7 +80,7 @@ pomelo! {
     // These terminal types are extracted by the lexer
     %type NewLine String;
     %type Whitespace String;
-    %type Hash1 String;
+    %type Hash (usize, String);
     %type PlainText String;
 
     // Each line gets parsed and identified by the lexer
