@@ -51,30 +51,38 @@ impl<'a> Tokenizer {
         let mut lines = vec![];
 
         let mut line_no = 0;
-        let mut col_no = 0;
+        let mut start_col = 0;
+        let mut end_col = 0;
 
         let mut tokens = vec![];
         while let Some((terminal, token_str)) = extraction {
             let token_len = token_str.len();
-            let start_col = col_no;
-            let end_col = start_col + token_len;
-            let span = Span::new(line_no, start_col, end_col);
-            // Move the pointer after we've extracted the token
-            col_no = end_col;
             source = &source[token_len..];
             match terminal {
                 // When we hit a newline, push the tokens onto the line
                 // vec, then start accumulating a new line.
                 Terminal::NewLine => {
+                    let span = Span::single_line(line_no, start_col, end_col + 1);
                     lines.push(Tokenizer::line_token(span, tokens));
                     tokens = vec![];
                     line_no += 1;
-                    col_no = 0;
+                    start_col = 0;
+                    end_col = 0;
                 }
-                t => tokens.push(t.as_token(span, token_str)),
+                t => {
+                    end_col = start_col + token_len;
+                    let span = Span::single_line(line_no, start_col, end_col);
+                    tokens.push(t.as_token(span, token_str));
+                    start_col = end_col;
+                }
             }
             extraction = self.extract(source);
         }
+
+        // Push remaining tokens onto the end if the source did not end
+        // with a new line.
+        let span = Span::single_line(line_no, start_col, end_col);
+        lines.push(Tokenizer::line_token(span, tokens));
 
         lines
     }
@@ -104,7 +112,7 @@ impl<'a> Tokenizer {
         let mut end = 1;
         let mut matches = self.regex_set.matches(&source[end..]);
 
-        while !matches.matched_any() {
+        while !matches.matched_any() && end < source.len() {
             end += 1;
             matches = self.regex_set.matches(&source[end..]);
         }
@@ -113,11 +121,52 @@ impl<'a> Tokenizer {
     }
 
     fn line_token(token_span: Span, tokens: Vec<Token>) -> Token {
-        let line_span = Span::new(token_span.start_line, 0, token_span.end_col);
+        let line_span = Span::single_line(token_span.start_line, 0, token_span.end_col);
         match tokens.first() {
             None => Token::LineEmpty(line_span),
             Some(Token::Hash1(_)) => Token::LineHeader((line_span, (1, tokens))),
             Some(_) => Token::LinePlain((line_span, tokens)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::markdown::parse::Token;
+
+    #[test]
+    fn test_basic_tokenization() {
+        let tokenizer = Tokenizer::new();
+
+        let test = "# Hello, World\n\nTest.";
+        let tokens = tokenizer.tokenize(test);
+
+        assert_eq!(
+            vec![
+                Token::LineHeader((
+                    Span::single_line(0, 0, 14),
+                    (
+                        1,
+                        vec![
+                            Token::Hash1((Span::single_line(0, 0, 1), "#".into())),
+                            Token::Whitespace((Span::single_line(0, 1, 2), " ".into())),
+                            Token::PlainText((Span::single_line(0, 2, 8), "Hello,".into())),
+                            Token::Whitespace((Span::single_line(0, 8, 9), " ".into())),
+                            Token::PlainText((Span::single_line(0, 9, 14), "World".into())),
+                        ]
+                    ),
+                )),
+                Token::LineEmpty(Span::single_line(1, 0, 0)),
+                Token::LinePlain((
+                    Span::single_line(2, 0, 5),
+                    vec![Token::PlainText((
+                        Span::single_line(2, 0, 5),
+                        "Test.".into()
+                    ))],
+                )),
+            ],
+            tokens
+        )
     }
 }
