@@ -81,13 +81,17 @@ pomelo! {
     // These terminal types are extracted by the lexer
     %type NewLine String;
     %type Whitespace String;
-    %type Hash (usize, String);
+    %type Atx (usize, String);
     %type PlainText String;
 
     // Each line gets parsed and identified by the lexer
     %type LinePlain Vec<Token>;
     %type LineContinuation Vec<Token>;
     %type LineHeader (usize, Vec<Token>);
+
+    %type LineHrOrSetext String;
+    %type LineHr String;
+    %type LineSetext String;
 
     // These non-terminal types are built by the parser
     %type doc Vec<Line>;
@@ -97,8 +101,15 @@ pomelo! {
     %type chunk_line (Span, Vec<Token>);
     %type header Line;
     %type paragraph Line;
+    %type setext_1 Line;
+    %type setext_2 Line;
     %type empty Line;
+    %type empty_chunk Span;
+    %type empty_chunk_line Span;
+    %type empty_paragraph Line;
 
+    // %fallback PlainText NewLine Whitespace LineHrOrSetext LineHr LineSetext;
+    %fallback EmptyLineContinuation LineEmpty;
     %fallback LineContinuation LinePlain;
 
     doc ::= blocks(b) { b };
@@ -107,11 +118,14 @@ pomelo! {
     blocks ::= blocks(b) block(c) { [b, vec![c]].concat() };
 
     // Single line blocks
-    block ::= LineHeader((span, (s, t))) { Line::Header(span, s, t) };
+    block ::= LineHeader((span, (s, t))) { Line::AtxHeader(span, s, t) };
 
     // Multiline blocks
     block ::= paragraph(p) { p };
+    block ::= setext_1(p) { p };
+    block ::= setext_2(p) { p };
     block ::= empty(b) { b };
+    block ::= empty_paragraph(b) { b };
 
     // A chunk is a grouping of lines _not_ separated by an empty line.
     // These lines merge into the first line (whatever type that is.)
@@ -123,10 +137,25 @@ pomelo! {
     chunk_line ::= LineContinuation((span, tokens)) { (span, tokens) };
 
     // Paragraphs
-    paragraph ::= LinePlain((a, b)) chunk((c, d)) { Line::Paragraph(a + c, [b, d].concat()) }
-    paragraph ::= LinePlain((a, b)) { Line::Paragraph(a, b) }
+    paragraph ::= LinePlain((a, b)) chunk((c, d)) { Line::Paragraph(a + c, [b, d].concat()) };
+    paragraph ::= LinePlain((a, b)) { Line::Paragraph(a, b) };
+
+    setext_1 ::= paragraph(Line::Paragraph(a, b)) LineSetext((c, d)) {
+        Line::SetextHeader(a + c.clone(), 1, b, Token::PlainText((c, d)))
+    };
+    setext_2 ::= paragraph(Line::Paragraph(a, b)) LineHrOrSetext((c, d)) {
+        Line::SetextHeader(a + c.clone(), 2, b, Token::PlainText((c, d)))
+    };
 
     // Empty lines
+    // empty_chunk ::= empty_chunk_line(a) { a };
+    // empty_chunk ::= empty_chunk empty_chunk_line(a) { a };
+    // empty_chunk_line ::= EmptyLineContinuation(a) { a };
+
+    empty_paragraph ::= LineEmpty(a) EmptyLineContinuation(b) EmptyLineContinuation(c) { Line::EmptyParagraph(a + b + c) };
+    empty_paragraph ::= LineEmpty(a) EmptyLineContinuation(b) { Line::Empty(a + b) };
+    // empty_paragraph ::= LineEmpty(a) empty_chunk(b) { Line::EmptyParagraph(a + b) };
+    // empty_paragraph ::= LineEmpty(a) { Line::EmptyParagraph(a) };
     empty ::= LineEmpty(span) { Line::Empty(span) };
 }
 

@@ -2,9 +2,8 @@ pub mod ast;
 pub mod parse;
 pub mod token;
 
-use token::Tokenizer;
-
 use parse::Parser;
+use token::Tokenizer;
 
 pub fn parse(tokenizer: &Tokenizer, source: &str) -> String {
     let tokens = tokenizer.tokenize(source);
