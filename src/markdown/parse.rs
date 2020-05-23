@@ -148,14 +148,7 @@ pomelo! {
     };
 
     // Empty lines
-    // empty_chunk ::= empty_chunk_line(a) { a };
-    // empty_chunk ::= empty_chunk empty_chunk_line(a) { a };
-    // empty_chunk_line ::= EmptyLineContinuation(a) { a };
-
-    empty_paragraph ::= LineEmpty(a) EmptyLineContinuation(b) EmptyLineContinuation(c) { Line::EmptyParagraph(a + b + c) };
-    empty_paragraph ::= LineEmpty(a) EmptyLineContinuation(b) { Line::Empty(a + b) };
-    // empty_paragraph ::= LineEmpty(a) empty_chunk(b) { Line::EmptyParagraph(a + b) };
-    // empty_paragraph ::= LineEmpty(a) { Line::EmptyParagraph(a) };
+    empty_paragraph ::= LineEmpty(a) EmptyLineContinuation(b) { Line::EmptyParagraph(a + b) };
     empty ::= LineEmpty(span) { Line::Empty(span) };
 }
 
