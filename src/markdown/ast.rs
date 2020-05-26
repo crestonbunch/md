@@ -1,13 +1,32 @@
+use std::ops::Add;
+
 use serde::Serialize;
 
 use crate::markdown::parse::Span;
-use crate::markdown::parse::Token;
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum Block {
+    Container(ContainerBlock),
+    Leaf(LeafBlock),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum ContainerBlock {
+    // TODO:
+    BlockQuote(Span, Vec<Block>),
+    List(Span, Vec<Block>),
+    ListItem(Span, Vec<Block>),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub enum LeafBlock {
+    Empty(Span),
+    Paragraph(Span, Vec<Line>),
+    Header(Span, usize, Line),
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum Line {
     Empty(Span),
-    EmptyParagraph(Span),
-    AtxHeader(Span, usize, Vec<Token>),
-    SetextHeader(Span, usize, Vec<Token>, Token),
-    Paragraph(Span, Vec<Token>),
+    PlainText(Span, String),
 }
