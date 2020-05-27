@@ -3,8 +3,6 @@ mod utils;
 
 use wasm_bindgen::prelude::*;
 
-use markdown::token::Tokenizer;
-
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
 #[cfg(feature = "wee_alloc")]
@@ -12,9 +10,7 @@ use markdown::token::Tokenizer;
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
-pub struct Compiler {
-    tokenizer: Tokenizer,
-}
+pub struct Compiler {}
 
 impl Default for Compiler {
     fn default() -> Self {
@@ -26,12 +22,10 @@ impl Default for Compiler {
 impl Compiler {
     pub fn new() -> Self {
         utils::set_panic_hook();
-
-        let tokenizer = Tokenizer::new();
-        Compiler { tokenizer }
+        Compiler {}
     }
 
     pub fn compile(&self, source: &str) -> String {
-        markdown::parse(&self.tokenizer, source)
+        markdown::parse(source)
     }
 }

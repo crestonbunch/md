@@ -1,5 +1,3 @@
-use std::ops::Add;
-
 use serde::Serialize;
 
 use crate::markdown::parse::Span;
@@ -13,8 +11,9 @@ pub enum Block {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum ContainerBlock {
     // TODO:
-    BlockQuote(Span, Vec<Block>),
-    List(Span, Vec<Block>),
+    Blockquote(Span, Vec<Block>),
+    UnorderedList(Span, Vec<Block>),
+    OrderedList(Span, Vec<Block>),
     ListItem(Span, Vec<Block>),
 }
 
@@ -27,6 +26,5 @@ pub enum LeafBlock {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum Line {
-    Empty(Span),
-    PlainText(Span, String),
+    Plaintext(Span, String),
 }
