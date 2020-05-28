@@ -33,6 +33,8 @@ impl<'a> Tokenizer<'a> {
             Some(&Token::Eof(_)) => false,
             _ => true,
         } {
+            // TODO: probe out the next line, but before we start it
+            // close out the current line (so the spans end on this line.)
             let (new_tokens, new_source) =
                 Tokenizer::tokenize_line(line_no, source, open_tokens.clone());
             source = new_source;
@@ -44,6 +46,7 @@ impl<'a> Tokenizer<'a> {
                         (Token::ListItemStart(_), Token::ListItemEnd(_)) => true,
                         (Token::BlockquoteStart(_), Token::BlockquoteEnd(_)) => true,
                         (Token::ParagraphStart(_), Token::ParagraphEnd(_)) => true,
+                        (Token::EmptyStart(_), Token::EmptyEnd(_)) => true,
                         _ => false,
                     } {
                         open_tokens.pop();
@@ -56,6 +59,7 @@ impl<'a> Tokenizer<'a> {
                     Token::ListItemStart(_) => true,
                     Token::BlockquoteStart(_) => true,
                     Token::ParagraphStart(_) => true,
+                    Token::EmptyStart(_) => true,
                     _ => false,
                 } {
                     open_tokens.push(t.clone());
@@ -77,8 +81,104 @@ impl<'a> Tokenizer<'a> {
     ) -> (Vec<Token>, &'a str) {
         let open_tokens = open_tokens;
         let (probes, span, text, len) = Tokenizer::probe(line_no, source);
+        let (probes, mut unmatched, max_ol, max_ul) =
+            Tokenizer::match_probes(&probes, &open_tokens);
         let source = &source[len..];
 
+        // Any unconsumed probes are now considered the start of
+        // new blocks. If we're starting a new block we need to
+        // close any unmatched blocks.
+        if !probes.is_empty() {
+            let tail = &probes[probes.len() - 1..];
+            let tokens = unmatched
+                .iter()
+                .rev()
+                .map(|b| {
+                    let span = Span::single_line(line_no, 0, 0);
+                    match b {
+                        Token::ListItemStart(_) => Token::ListItemEnd(span),
+                        Token::BlockquoteStart(_) => Token::BlockquoteEnd(span),
+                        Token::UnorderedListStart(_) => Token::UnorderedListEnd(span),
+                        Token::OrderedListStart(_) => Token::OrderedListEnd(span),
+                        Token::ParagraphStart(_) => Token::ParagraphEnd(span),
+                        Token::EmptyStart(_) => Token::EmptyEnd(span),
+                        _ => unreachable!(),
+                    }
+                })
+                .chain(probes.iter().flat_map(|p| match p {
+                    Probe::Header(span, size) => vec![Token::Header((*span, *size))],
+                    Probe::Plaintext(_, _) => vec![],
+                    Probe::Blockquote(span) => vec![Token::BlockquoteStart(*span)],
+                    Probe::Ul(span, level) if level > &max_ul => vec![
+                        Token::UnorderedListStart((*span, *level)),
+                        Token::ListItemStart((*span, *level)),
+                    ],
+                    Probe::Ol(span, level) if level > &max_ol => vec![
+                        Token::OrderedListStart((*span, *level)),
+                        Token::ListItemStart((*span, *level)),
+                    ],
+                    Probe::Ol(span, i) | Probe::Ul(span, i) => {
+                        vec![Token::ListItemStart((*span, *i))]
+                    }
+                    Probe::Empty(span) => vec![Token::EmptyStart(*span)],
+                    Probe::Eof(span) => vec![Token::Eof(*span)],
+                }))
+                // Following the last probe we include the plaintext and
+                // sometimes a paragraph start.
+                .chain(tail.iter().flat_map(|p| {
+                    let text = Token::Plaintext((span, text.into()));
+                    match p {
+                        Probe::Header(_, _) => vec![text],
+                        Probe::Plaintext(span, t) => vec![Token::Plaintext((*span, (*t).into()))],
+                        Probe::Blockquote(span) => vec![Token::ParagraphStart(*span), text],
+                        Probe::Ul(span, _) => vec![Token::ParagraphStart(*span), text],
+                        Probe::Ol(span, _) => vec![Token::ParagraphStart(*span), text],
+                        Probe::Empty(span) => vec![Token::Empty(*span)],
+                        Probe::Eof(_) => vec![],
+                    }
+                }))
+                .collect();
+            return (tokens, source);
+        }
+
+        let mut t = vec![];
+
+        if unmatched.is_empty() && text.is_empty() {
+            // Everything is empty so this is an empty continuation
+            t.push(Token::Empty(span));
+            return (t, source);
+        }
+
+        // The line is not empty, so we should close all open
+        // empty blocks before pushing the paragraph/plaintext blocks.
+        // TODO: is there a more elegant place to put this?
+        if let Some(Token::EmptyStart(_)) = unmatched.get(0) {
+            let span = Span::single_line(line_no, 0, 0);
+            t.push(Token::EmptyEnd(span));
+            unmatched = &unmatched[1..];
+        } else if let Some(Token::EmptyStart(_)) = open_tokens.get(0) {
+            let span = Span::single_line(line_no, 0, 0);
+            t.push(Token::EmptyEnd(span))
+        }
+
+        if unmatched.is_empty() {
+            // There are no unmatched blocks, so this is a paragraph
+            let text = Token::Plaintext((span, text.into()));
+            let p = Token::ParagraphStart(Span::single_line(line_no, 0, 0));
+            t.push(p);
+            t.push(text);
+        } else {
+            // Something is already open, so just append the plaintext
+            t.push(Token::Plaintext((span, text.into())));
+        }
+
+        (t, source)
+    }
+
+    fn match_probes(
+        probes: &'a [Probe],
+        open_tokens: &'a [Token],
+    ) -> (&'a [Probe<'a>], &'a [Token], usize, usize) {
         // First we look for open blocks and match the probes against
         // them. In order to remain open, a block needs to have an
         // appropriate continuation at the start of the line. For lists
@@ -103,6 +203,8 @@ impl<'a> Tokenizer<'a> {
                 (Token::ListItemStart((_, a)), Probe::Ol(_, b)) if *a < b => (),
                 // > can only be continued with another >
                 (Token::BlockquoteStart(_), Probe::Blockquote(_)) => probes = &probes[1..],
+                // Empy blocks are continued by another empty line
+                (Token::EmptyStart(_), Probe::Empty(_)) => probes = &probes[1..],
                 _ => {
                     // The first time any block unmatched, all
                     // remaining blocks are unmatched
@@ -112,71 +214,7 @@ impl<'a> Tokenizer<'a> {
             unmatched = &unmatched[1..];
         }
 
-        // Any unconsumed probes are now considered the start of
-        // new blocks. If we're starting a new block we need to
-        // close any unmatched blocks.
-        if !probes.is_empty() {
-            let tail = &probes[probes.len() - 1..];
-            let tokens = unmatched
-                .iter()
-                .rev()
-                .map(|b| {
-                    let span = Span::single_line(line_no, 0, 0);
-                    match b {
-                        Token::ListItemStart(_) => Token::ListItemEnd(span),
-                        Token::BlockquoteStart(_) => Token::BlockquoteEnd(span),
-                        Token::UnorderedListStart(_) => Token::UnorderedListEnd(span),
-                        Token::OrderedListStart(_) => Token::OrderedListEnd(span),
-                        Token::ParagraphStart(_) => Token::ParagraphEnd(span),
-                        _ => unreachable!(),
-                    }
-                })
-                .chain(probes.iter().flat_map(|p| match p {
-                    Probe::Header(span, size) => vec![Token::Header((*span, *size))],
-                    Probe::Plaintext(_, _) => vec![],
-                    Probe::Blockquote(span) => vec![Token::BlockquoteStart(*span)],
-                    Probe::Ul(span, level) if level > &max_ul => vec![
-                        Token::UnorderedListStart((*span, *level)),
-                        Token::ListItemStart((*span, *level)),
-                    ],
-                    Probe::Ol(span, level) if level > &max_ol => vec![
-                        Token::OrderedListStart((*span, *level)),
-                        Token::ListItemStart((*span, *level)),
-                    ],
-                    Probe::Ol(span, i) | Probe::Ul(span, i) => {
-                        vec![Token::ListItemStart((*span, *i))]
-                    }
-                    Probe::Empty(span) => vec![Token::Empty(*span)],
-                    Probe::Eof(span) => vec![Token::Eof(*span)],
-                }))
-                // Following the last probe we include the plaintext and
-                // sometimes a paragraph start.
-                .chain(tail.iter().flat_map(|p| {
-                    let text = Token::Plaintext((span, text.into()));
-                    match p {
-                        Probe::Header(_, _) => vec![text],
-                        Probe::Plaintext(span, t) => vec![Token::Plaintext((*span, (*t).into()))],
-                        Probe::Blockquote(span) => vec![Token::ParagraphStart(*span), text],
-                        Probe::Ul(span, _) => vec![Token::ParagraphStart(*span), text],
-                        Probe::Ol(span, _) => vec![Token::ParagraphStart(*span), text],
-                        Probe::Empty(_) => vec![],
-                        Probe::Eof(_) => vec![],
-                    }
-                }))
-                .collect();
-            return (tokens, source);
-        }
-
-        // If probes is empty, this is a continuation if we have
-        // unmatched blocks, and a paragraph otherwise.
-        if !unmatched.is_empty() {
-            let text = Token::Plaintext((span, text.into()));
-            (vec![text], source)
-        } else {
-            let text = Token::Plaintext((span, text.into()));
-            let p = Token::ParagraphStart(Span::single_line(line_no, 0, 0));
-            (vec![p, text], source)
-        }
+        (probes, unmatched, max_ol, max_ul)
     }
 
     fn probe(line_no: usize, source: &'a str) -> (Vec<Probe<'a>>, Span, &'a str, usize) {
@@ -330,16 +368,21 @@ mod tests {
 
     #[test]
     fn test_empty_lines() {
+        // TODO: trim empty lines from source?
         let source = "\n\nHello, World!\n\n";
         let result = Tokenizer::tokenize(source);
         assert_eq!(
             vec![
+                Token::EmptyStart(s(0, 0, 0)),
                 Token::Empty(s(0, 0, 0)),
                 Token::Empty(s(1, 0, 0)),
+                Token::EmptyEnd(s(2, 0, 0)),
                 Token::ParagraphStart(s(2, 0, 0)),
                 Token::Plaintext((s(2, 0, 13), "Hello, World!".into())),
                 Token::ParagraphEnd(s(3, 0, 0)),
+                Token::EmptyStart(s(3, 0, 0)),
                 Token::Empty(s(3, 0, 0)),
+                Token::EmptyEnd(s(4, 0, 0)),
                 Token::Eof(s(4, 0, 0))
             ],
             result

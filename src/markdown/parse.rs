@@ -91,8 +91,6 @@ pomelo! {
     %error String;
     %extra_token Span;
 
-    %fallback Eof Empty;
-
     %type UnorderedListStart usize;
     %type OrderedListStart usize;
     %type ListItemStart usize;
@@ -106,6 +104,7 @@ pomelo! {
     %type plaintext (Span, Vec<ast::Line>);
     %type header (Span, ast::LeafBlock);
     %type paragraph (Span, ast::LeafBlock);
+    %type empty_lines (Span, Vec<ast::Line>);
     %type empty (Span, ast::LeafBlock);
     %type blockquote (Span, ast::ContainerBlock);
     %type ul (Span, ast::ContainerBlock);
@@ -140,7 +139,14 @@ pomelo! {
        (sa + sb, ast::LeafBlock::Paragraph(sa + sb, b))
     }
 
-    empty ::= Empty(sa) { (sa, ast::LeafBlock::Empty(sa) )}
+    empty_lines ::= empty_lines((sa, a)) Empty(sb) {
+        (sa + sb, [a, vec![ast::Line::Empty(sb)]].concat())
+    }
+    empty_lines ::= Empty(sa) { (sa, vec![ast::Line::Empty(sa)] )}
+    empty ::= EmptyStart(sa) EmptyEnd { (sa, ast::LeafBlock::Empty(sa, vec![])) }
+    empty ::= EmptyStart(sa) empty_lines((sb, b)) EmptyEnd {
+        (sa + sb, ast::LeafBlock::Empty(sa + sb, b))
+    }
 
     blockquote ::= BlockquoteStart(sa) blocks((sb, b)) BlockquoteEnd {
         (sa + sb, ast::ContainerBlock::Blockquote(sa + sb, b))
@@ -185,6 +191,41 @@ mod tests {
         let result = parser.end_of_input().unwrap();
 
         assert_eq!(Vec::<ast::Block>::new(), result);
+    }
+
+    #[test]
+    fn test_empty_paragraph() {
+        let source = "Hello\n\n\n\nWorld";
+        let tokens = Tokenizer::tokenize(source);
+
+        let mut parser = Parser::new();
+        for token in tokens {
+            parser.parse(token).unwrap();
+        }
+
+        let result = parser.end_of_input().unwrap();
+
+        assert_eq!(
+            vec![
+                ast::Block::Leaf(ast::LeafBlock::Paragraph(
+                    s(0, 0, 5),
+                    vec![ast::Line::Plaintext(s(0, 0, 5), "Hello".into())]
+                )),
+                ast::Block::Leaf(ast::LeafBlock::Empty(
+                    Span::multi_line(1, 3, 0, 0),
+                    vec![
+                        ast::Line::Empty(s(1, 0, 0)),
+                        ast::Line::Empty(s(2, 0, 0)),
+                        ast::Line::Empty(s(3, 0, 0)),
+                    ]
+                )),
+                ast::Block::Leaf(ast::LeafBlock::Paragraph(
+                    s(4, 0, 5),
+                    vec![ast::Line::Plaintext(s(4, 0, 5), "World".into())]
+                )),
+            ],
+            result
+        );
     }
 
     #[test]
