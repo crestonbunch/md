@@ -6,36 +6,13 @@ use serde::Serialize;
 
 #[derive(Debug, Copy, Clone, Serialize, PartialEq, Eq)]
 pub struct Span {
-    pub start_line: usize,
-    pub start_col: usize,
-    pub end_line: usize,
-    pub end_col: usize,
+    pub start: usize,
+    pub end: usize,
 }
 
 impl Span {
-    /// Create a new span that only spans a single line.
-    pub fn single_line(line: usize, start_col: usize, end_col: usize) -> Span {
-        Span {
-            start_line: line,
-            end_line: line,
-            start_col,
-            end_col,
-        }
-    }
-
-    /// Create a new span that spans many lines.
-    pub fn multi_line(
-        start_line: usize,
-        end_line: usize,
-        start_col: usize,
-        end_col: usize,
-    ) -> Span {
-        Span {
-            start_line,
-            end_line,
-            start_col,
-            end_col,
-        }
+    pub fn new(start: usize, end: usize) -> Span {
+        Span { start, end }
     }
 }
 
@@ -43,40 +20,23 @@ impl Add for Span {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        match self.start_line.cmp(&other.start_line) {
-            Ordering::Less => Span::multi_line(
-                self.start_line,
-                other.end_line,
-                self.start_col,
-                other.end_col,
-            ),
-            Ordering::Greater => Span::multi_line(
-                other.start_line,
-                self.end_line,
-                other.start_col,
-                self.end_col,
-            ),
-            Ordering::Equal => match self.end_line.cmp(&other.end_line) {
-                Ordering::Less => Span::multi_line(
-                    self.start_line,
-                    other.end_line,
-                    std::cmp::min(self.start_col, other.start_col),
-                    other.end_col,
-                ),
-                Ordering::Greater => Span::multi_line(
-                    self.start_line,
-                    self.end_line,
-                    std::cmp::min(self.start_col, other.start_col),
-                    self.end_col,
-                ),
-                Ordering::Equal => Span::multi_line(
-                    self.start_line,
-                    other.end_line,
-                    std::cmp::min(self.start_col, other.start_col),
-                    std::cmp::max(self.end_col, other.end_col),
-                ),
-            },
-        }
+        let start = match self.start.cmp(&other.start) {
+            Ordering::Less => self.start,
+            Ordering::Greater => other.start,
+            Ordering::Equal => self.start,
+        };
+        let end = match self.end.cmp(&other.end) {
+            Ordering::Less => other.end,
+            Ordering::Greater => self.end,
+            Ordering::Equal => self.end,
+        };
+        Span::new(start, end)
+    }
+}
+
+impl std::convert::Into<Span> for &std::ops::Range<usize> {
+    fn into(self) -> Span {
+        Span::new(self.start, self.end)
     }
 }
 
@@ -174,14 +134,11 @@ mod tests {
     use crate::markdown::ast;
     use crate::markdown::token::Tokenizer;
 
-    fn s(line: usize, start: usize, end: usize) -> Span {
-        Span::single_line(line, start, end)
-    }
-
     #[test]
     fn test_empty_source() {
         let source = "";
-        let tokens = Tokenizer::tokenize(source);
+        let mut tokenizer = Tokenizer::new(source);
+        let tokens = tokenizer.tokenize();
 
         let mut parser = Parser::new();
         for token in tokens {
@@ -196,7 +153,8 @@ mod tests {
     #[test]
     fn test_empty_paragraph() {
         let source = "Hello\n\n\n\nWorld";
-        let tokens = Tokenizer::tokenize(source);
+        let mut tokenizer = Tokenizer::new(source);
+        let tokens = tokenizer.tokenize();
 
         let mut parser = Parser::new();
         for token in tokens {
@@ -204,24 +162,24 @@ mod tests {
         }
 
         let result = parser.end_of_input().unwrap();
-
         assert_eq!(
             vec![
                 ast::Block::Leaf(ast::LeafBlock::Paragraph(
-                    s(0, 0, 5),
-                    vec![ast::Line::Plaintext(s(0, 0, 5), "Hello".into())]
+                    Span::new(0, 5),
+                    vec![ast::Line::Plaintext(Span::new(0, 5), "Hello".into())]
                 )),
                 ast::Block::Leaf(ast::LeafBlock::Empty(
-                    Span::multi_line(1, 3, 0, 0),
+                    Span::new(6, 9),
                     vec![
-                        ast::Line::Empty(s(1, 0, 0)),
-                        ast::Line::Empty(s(2, 0, 0)),
-                        ast::Line::Empty(s(3, 0, 0)),
+                        ast::Line::Empty(Span::new(6, 6)),
+                        ast::Line::Empty(Span::new(6, 7)),
+                        ast::Line::Empty(Span::new(7, 8)),
+                        ast::Line::Empty(Span::new(8, 9)),
                     ]
                 )),
                 ast::Block::Leaf(ast::LeafBlock::Paragraph(
-                    s(4, 0, 5),
-                    vec![ast::Line::Plaintext(s(4, 0, 5), "World".into())]
+                    Span::new(9, 14),
+                    vec![ast::Line::Plaintext(Span::new(9, 14), "World".into())]
                 )),
             ],
             result
@@ -231,7 +189,8 @@ mod tests {
     #[test]
     fn test_header_paragraph() {
         let source = ["# Title", "Hello,", "World!"].join("\n");
-        let tokens = Tokenizer::tokenize(&source[..]);
+        let mut tokenizer = Tokenizer::new(&source[..]);
+        let tokens = tokenizer.tokenize();
 
         let mut parser = Parser::new();
         for token in tokens {
@@ -243,15 +202,15 @@ mod tests {
         assert_eq!(
             vec![
                 ast::Block::Leaf(ast::LeafBlock::Header(
-                    s(0, 0, 7),
+                    Span::new(0, 7),
                     1,
-                    ast::Line::Plaintext(s(0, 2, 7), "Title".into())
+                    ast::Line::Plaintext(Span::new(2, 7), "Title".into())
                 )),
                 ast::Block::Leaf(ast::LeafBlock::Paragraph(
-                    Span::multi_line(1, 2, 0, 6),
+                    Span::new(8, 21),
                     vec![
-                        ast::Line::Plaintext(s(1, 0, 6), "Hello,".into()),
-                        ast::Line::Plaintext(s(2, 0, 6), "World!".into()),
+                        ast::Line::Plaintext(Span::new(8, 14), "Hello,".into()),
+                        ast::Line::Plaintext(Span::new(15, 21), "World!".into()),
                     ]
                 )),
             ],

@@ -1,45 +1,47 @@
+use std::ops::Range;
+
 use crate::markdown::parse::Span;
 use crate::markdown::parse::Token;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Probe<'a> {
-    Empty(Span),
-    Plaintext(Span, &'a str),
-    Eof(Span),
-    Blockquote(Span),
-    Header(Span, usize),
-    Ul(Span, usize),
-    Ol(Span, usize),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Probe {
+    Empty(Range<usize>),
+    Eof(Range<usize>),
+    Blockquote(Range<usize>),
+    Header(Range<usize>, usize),
+    Ul(Range<usize>, usize),
+    Ol(Range<usize>, usize),
 }
 
-pub struct Tokenizer<'a> {
-    source: &'a str,
+pub struct Tokenizer {
+    source: String,
+    start_idx: usize,
+    end_idx: usize,
+    open: Vec<Token>,
 }
 
-impl<'a> Tokenizer<'a> {
-    pub fn new(source: &'a str) -> Self {
-        Tokenizer { source }
+impl Tokenizer {
+    pub fn new(source: &str) -> Self {
+        Tokenizer {
+            source: source.into(),
+            start_idx: 0,
+            end_idx: 0,
+            open: vec![],
+        }
     }
 
     /// Parse the input string into a list of lines of tokens. The lines
     /// can then be run through the parser to generate a syntax tree.
-    pub fn tokenize(source: &str) -> Vec<Token> {
-        let mut source = source;
-        let mut open_tokens: Vec<Token> = vec![];
+    pub fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = vec![];
-        let mut line_no = 0;
 
         while match tokens.last() {
             Some(&Token::Eof(_)) => false,
             _ => true,
         } {
-            // TODO: probe out the next line, but before we start it
-            // close out the current line (so the spans end on this line.)
-            let (new_tokens, new_source) =
-                Tokenizer::tokenize_line(line_no, source, open_tokens.clone());
-            source = new_source;
+            let new_tokens = self.tokenize_line();
             for t in new_tokens {
-                if let Some(peek) = open_tokens.last() {
+                if let Some(peek) = self.open.last() {
                     if match (peek, &t) {
                         (Token::UnorderedListStart(_), Token::UnorderedListEnd(_)) => true,
                         (Token::OrderedListStart(_), Token::OrderedListEnd(_)) => true,
@@ -49,7 +51,7 @@ impl<'a> Tokenizer<'a> {
                         (Token::EmptyStart(_), Token::EmptyEnd(_)) => true,
                         _ => false,
                     } {
-                        open_tokens.pop();
+                        self.open.pop();
                     }
                 }
 
@@ -62,39 +64,32 @@ impl<'a> Tokenizer<'a> {
                     Token::EmptyStart(_) => true,
                     _ => false,
                 } {
-                    open_tokens.push(t.clone());
+                    self.open.push(t.clone());
                 }
 
                 tokens.push(t);
             }
-
-            line_no += 1;
         }
 
         tokens
     }
 
-    fn tokenize_line(
-        line_no: usize,
-        source: &'a str,
-        open_tokens: Vec<Token>,
-    ) -> (Vec<Token>, &'a str) {
-        let open_tokens = open_tokens;
-        let (probes, span, text, len) = Tokenizer::probe(line_no, source);
-        let (probes, mut unmatched, max_ol, max_ul) =
-            Tokenizer::match_probes(&probes, &open_tokens);
-        let source = &source[len..];
+    fn tokenize_line(&mut self) -> Vec<Token> {
+        let probes = self.probe();
+        let (probes, mut unmatched, max_ol, max_ul) = self.match_probes(&probes);
+        let end_idx = self.end_idx;
+        // let span = Span::new(start_idx, end_idx);
+        // let text = &source[start_idx..end_idx].trim_end_matches("\n");
 
         // Any unconsumed probes are now considered the start of
         // new blocks. If we're starting a new block we need to
         // close any unmatched blocks.
         if !probes.is_empty() {
-            let tail = &probes[probes.len() - 1..];
             let tokens = unmatched
                 .iter()
                 .rev()
                 .map(|b| {
-                    let span = Span::single_line(line_no, 0, 0);
+                    let span = Span::new(end_idx, end_idx);
                     match b {
                         Token::ListItemStart(_) => Token::ListItemEnd(span),
                         Token::BlockquoteStart(_) => Token::BlockquoteEnd(span),
@@ -106,88 +101,90 @@ impl<'a> Tokenizer<'a> {
                     }
                 })
                 .chain(probes.iter().flat_map(|p| match p {
-                    Probe::Header(span, size) => vec![Token::Header((*span, *size))],
-                    Probe::Plaintext(_, _) => vec![],
-                    Probe::Blockquote(span) => vec![Token::BlockquoteStart(*span)],
-                    Probe::Ul(span, level) if level > &max_ul => vec![
-                        Token::UnorderedListStart((*span, *level)),
-                        Token::ListItemStart((*span, *level)),
+                    Probe::Header(range, width) => vec![Token::Header((range.into(), *width))],
+                    Probe::Blockquote(range) => vec![Token::BlockquoteStart(range.into())],
+                    Probe::Ul(range, width) if width > &max_ul => vec![
+                        Token::UnorderedListStart((range.into(), *width)),
+                        Token::ListItemStart((range.into(), *width)),
                     ],
-                    Probe::Ol(span, level) if level > &max_ol => vec![
-                        Token::OrderedListStart((*span, *level)),
-                        Token::ListItemStart((*span, *level)),
+                    Probe::Ol(range, width) if width > &max_ol => vec![
+                        Token::OrderedListStart((range.into(), *width)),
+                        Token::ListItemStart((range.into(), *width)),
                     ],
-                    Probe::Ol(span, i) | Probe::Ul(span, i) => {
-                        vec![Token::ListItemStart((*span, *i))]
+                    Probe::Ol(range, width) | Probe::Ul(range, width) => {
+                        vec![Token::ListItemStart((range.into(), *width))]
                     }
-                    Probe::Empty(span) => vec![Token::EmptyStart(*span)],
-                    Probe::Eof(span) => vec![Token::Eof(*span)],
+                    Probe::Empty(range) => vec![Token::EmptyStart(range.into())],
+                    Probe::Eof(range) => vec![Token::Eof(range.into())],
                 }))
-                // Following the last probe we include the plaintext and
-                // sometimes a paragraph start.
-                .chain(tail.iter().flat_map(|p| {
-                    let text = Token::Plaintext((span, text.into()));
+                // Following the last probe we sometimes need to start a paragraph
+                .chain({
+                    let p = probes.last().unwrap();
                     match p {
-                        Probe::Header(_, _) => vec![text],
-                        Probe::Plaintext(span, t) => vec![Token::Plaintext((*span, (*t).into()))],
-                        Probe::Blockquote(span) => vec![Token::ParagraphStart(*span), text],
-                        Probe::Ul(span, _) => vec![Token::ParagraphStart(*span), text],
-                        Probe::Ol(span, _) => vec![Token::ParagraphStart(*span), text],
-                        Probe::Empty(span) => vec![Token::Empty(*span)],
+                        Probe::Header(_, _) => vec![self.consume_line()],
+                        Probe::Blockquote(range) => {
+                            vec![Token::ParagraphStart(range.into()), self.consume_line()]
+                        }
+                        Probe::Ul(range, _) => {
+                            vec![Token::ParagraphStart(range.into()), self.consume_line()]
+                        }
+                        Probe::Ol(range, _) => {
+                            vec![Token::ParagraphStart(range.into()), self.consume_line()]
+                        }
+                        Probe::Empty(range) => vec![Token::Empty(range.into())],
                         Probe::Eof(_) => vec![],
                     }
-                }))
+                })
                 .collect();
-            return (tokens, source);
+
+            return tokens;
+        }
+
+        if unmatched.is_empty() {
+            if let Some(token) = self.consume_empty_line() {
+                // Everything is empty so this is an empty continuation
+                return vec![token];
+            }
         }
 
         let mut t = vec![];
 
-        if unmatched.is_empty() && text.is_empty() {
-            // Everything is empty so this is an empty continuation
-            t.push(Token::Empty(span));
-            return (t, source);
-        }
-
         // The line is not empty, so we should close all open
         // empty blocks before pushing the paragraph/plaintext blocks.
         // TODO: is there a more elegant place to put this?
+        let range = self.end_idx..self.end_idx;
         if let Some(Token::EmptyStart(_)) = unmatched.get(0) {
-            let span = Span::single_line(line_no, 0, 0);
-            t.push(Token::EmptyEnd(span));
-            unmatched = &unmatched[1..];
-        } else if let Some(Token::EmptyStart(_)) = open_tokens.get(0) {
-            let span = Span::single_line(line_no, 0, 0);
-            t.push(Token::EmptyEnd(span))
+            t.push(Token::EmptyEnd((&range).into()));
+            unmatched = (&unmatched[1..]).into();
+        } else if let Some(Token::EmptyStart(_)) = self.open.get(0) {
+            t.push(Token::EmptyEnd((&range).into()));
         }
 
+        let range = self.start_idx..self.start_idx;
+        let token = self.consume_line();
         if unmatched.is_empty() {
             // There are no unmatched blocks, so this is a paragraph
-            let text = Token::Plaintext((span, text.into()));
-            let p = Token::ParagraphStart(Span::single_line(line_no, 0, 0));
+            let p = Token::ParagraphStart((&range).into());
             t.push(p);
-            t.push(text);
+            t.push(token);
         } else {
             // Something is already open, so just append the plaintext
-            t.push(Token::Plaintext((span, text.into())));
+            t.push(token);
         }
 
-        (t, source)
+        t
     }
 
-    fn match_probes(
-        probes: &'a [Probe],
-        open_tokens: &'a [Token],
-    ) -> (&'a [Probe<'a>], &'a [Token], usize, usize) {
+    fn match_probes(&mut self, probes: &[Probe]) -> (Vec<Probe>, Vec<Token>, usize, usize) {
         // First we look for open blocks and match the probes against
         // them. In order to remain open, a block needs to have an
         // appropriate continuation at the start of the line. For lists
         // any list item on the same level or greater matches.
-        let mut unmatched = &open_tokens[..];
+        let mut unmatched = &self.open[..];
         let mut probes = &probes[..];
         let (mut max_ol, mut max_ul) = (0, 0);
         while !unmatched.is_empty() && !probes.is_empty() {
-            let probe = probes[0];
+            let probe = &probes[0];
             let open = &unmatched[0];
             match (open, probe) {
                 // TODO: Handle non-list probes that match the level of
@@ -199,8 +196,8 @@ impl<'a> Tokenizer<'a> {
                 (Token::OrderedListStart((_, a)), Probe::Ol(..)) => max_ol = *a,
                 // However, list items must strictly increase in
                 // spacing or we close them.
-                (Token::ListItemStart((_, a)), Probe::Ul(_, b)) if *a < b => (),
-                (Token::ListItemStart((_, a)), Probe::Ol(_, b)) if *a < b => (),
+                (Token::ListItemStart((_, a)), Probe::Ul(_, b)) if a < b => (),
+                (Token::ListItemStart((_, a)), Probe::Ol(_, b)) if a < b => (),
                 // > can only be continued with another >
                 (Token::BlockquoteStart(_), Probe::Blockquote(_)) => probes = &probes[1..],
                 // Empy blocks are continued by another empty line
@@ -214,139 +211,127 @@ impl<'a> Tokenizer<'a> {
             unmatched = &unmatched[1..];
         }
 
-        (probes, unmatched, max_ol, max_ul)
+        (probes.into(), unmatched.into(), max_ol, max_ul)
     }
 
-    fn probe(line_no: usize, source: &'a str) -> (Vec<Probe<'a>>, Span, &'a str, usize) {
-        let orig = source;
-        let mut source = source;
+    fn probe(&mut self) -> Vec<Probe> {
+        let start_idx = self.start_idx;
+        let line_start = start_idx;
         let mut probes = vec![];
-        let mut col = 0;
         // Start probing for line indicators
         loop {
-            if source.is_empty() {
+            if start_idx >= self.source.len() {
                 // The Eof probe is a special case indicating the end of
                 // the source and we should close all open blocks.
-                let span = Span::single_line(line_no, 0, 0);
-                probes.push(Probe::Eof(span));
-                return (probes, span, "", 0);
+                probes.push(Probe::Eof(start_idx..start_idx));
+                return probes;
             }
 
-            match Tokenizer::probe_block(line_no, col, source) {
+            match self.probe_block(line_start) {
                 // Stop as soon as we find plaintext -- any remaining
-                // tokens are parsed as part of the line. NB: plaintext
-                // are not pushed onto the probes stack
-                (Probe::Plaintext(span, plaintext), end) => {
-                    return (probes, span, plaintext, end);
-                }
+                // tokens are parsed as part of the line.
+                None => return probes,
                 // Track empty lines as tokens so that we can render
                 // them in the editor frontend.
-                (Probe::Empty(span), end) => {
-                    probes.push(Probe::Empty(span));
-                    return (probes, span, "", end);
+                Some(Probe::Empty(range)) => {
+                    probes.push(Probe::Empty(range));
+                    return probes;
                 }
                 // Push the probed token onto the stack. We will use
                 // the stack of tokens to decide which blocks to open/close.
-                (probe, end) => {
-                    probes.push(probe);
-                    source = &orig[end..];
-                    col = end;
-                }
+                Some(probe) => probes.push(probe),
             }
         }
     }
 
-    fn probe_block(line_no: usize, col: usize, source: &'a str) -> (Probe<'a>, usize) {
+    fn probe_block(&mut self, line_start: usize) -> Option<Probe> {
+        let start_idx = self.start_idx;
+        let source = &self.source[..];
         // Split the input source into three chunks: whitespace, token,
         // whitespace. The token may be a block start token.
-        let (_, a) = Tokenizer::probe_whitespace(source);
-        let (token, b) = Tokenizer::probe_non_whitespace(&source[a..]);
-        let (_, c) = Tokenizer::probe_whitespace(&source[b..]);
-        let end_col = col + a + b + c;
+        let (_, a) = Tokenizer::probe_whitespace(start_idx, source);
+        let (token, b) = Tokenizer::probe_non_whitespace(a, source);
+        let (_, end_idx) = Tokenizer::probe_whitespace(b, source);
 
-        let span = Span::single_line(line_no, col, end_col);
-        match token {
-            "-" | "+" | "*" => (Probe::Ul(span, end_col), end_col),
-            "1." | "1)" => (Probe::Ol(span, end_col), end_col),
-            "#" => (Probe::Header(span, 1), end_col),
-            "##" => (Probe::Header(span, 2), end_col),
-            "###" => (Probe::Header(span, 3), end_col),
-            "####" => (Probe::Header(span, 4), end_col),
-            "#####" => (Probe::Header(span, 5), end_col),
-            "######" => (Probe::Header(span, 6), end_col),
-            ">" => (Probe::Blockquote(span), end_col),
-            "" => {
-                let nl = Tokenizer::probe_newline(&source[c..]);
-                (Probe::Empty(span), end_col + nl)
-            }
+        // TODO: make sure there is whitespace after block starters
+        // TODO: support any number for ordered lists
+        // TODO: tabs are not the same width as spaces
+
+        let width = end_idx - line_start;
+        let range = start_idx..end_idx;
+        let probe = match token {
+            "-" | "+" | "*" => Probe::Ul(range, width),
+            "1." | "1)" => Probe::Ol(range, width),
+            "#" => Probe::Header(range, 1),
+            "##" => Probe::Header(range, 2),
+            "###" => Probe::Header(range, 3),
+            "####" => Probe::Header(range, 4),
+            "#####" => Probe::Header(range, 5),
+            "######" => Probe::Header(range, 6),
+            ">" => Probe::Blockquote(range),
+            "" => Probe::Empty(range),
             // We did not consume a block token, so the remainder
             // of the line is just plaintext.
-            _ => {
-                let (text, b) = Tokenizer::probe_line(&source[a..]);
-                let nl = Tokenizer::probe_newline(&source[b..]);
-                let span = Span::single_line(line_no, col, col + a + b);
-                (Probe::Plaintext(span, text), col + a + b + nl)
-            }
-        }
+            _ => return None,
+        };
+
+        // Update the start pointer only if we found a probe
+        self.start_idx = end_idx;
+        Some(probe)
     }
 
-    fn probe_whitespace(source: &'a str) -> (&'a str, usize) {
-        let mut ws = "";
-        let mut p: usize = 0;
-        while p < source.len()
-            && match &source[p..p + 1] {
-                " " | "\t" => true,
-                _ => false,
-            }
-        {
+    fn probe_whitespace(start_idx: usize, source: &str) -> (&str, usize) {
+        let mut p = start_idx;
+        while match &source.get(p..p + 1) {
+            Some(" ") | Some("\t") => true,
+            _ => false,
+        } {
             p += 1;
-            ws = &source[..p];
         }
-        (ws, p)
+        (&source[start_idx..p], p)
     }
 
-    fn probe_non_whitespace(source: &'a str) -> (&'a str, usize) {
-        let mut token = "";
-        let mut p: usize = 0;
-        while p < source.len()
-            && match &source[p..p + 1] {
-                " " | "\t" | "\n" => false,
-                _ => true,
-            }
-        {
-            p += 1;
-            token = &source[..p];
-        }
-        (token, p)
-    }
-
-    fn probe_line(source: &'a str) -> (&'a str, usize) {
-        let mut p: usize = 0;
-        while match source.get(p..p + 1) {
-            None | Some("\n") => return (&source[..p], p),
+    fn probe_non_whitespace(start_idx: usize, source: &str) -> (&str, usize) {
+        let mut p = start_idx;
+        while match &source.get(p..p + 1) {
+            None | Some(" ") | Some("\t") | Some("\n") => false,
             _ => true,
         } {
             p += 1;
         }
-        (&source[..p], p)
+        (&source[start_idx..p], p)
     }
 
-    fn probe_newline(source: &'a str) -> usize {
-        match source.get(0..1) {
-            Some("\n") => 1,
-            _ => 0,
+    fn consume_line(&mut self) -> Token {
+        self.end_idx = self.start_idx;
+        while match self.source.get(self.end_idx..self.end_idx + 1) {
+            None => false,
+            Some("\n") => false,
+            _ => true,
+        } {
+            self.end_idx += 1;
         }
+
+        let range = self.start_idx..self.end_idx;
+        let text = &self.source[range.clone()];
+        // Move the start index past the new line so we start on the
+        // next line when we begin again. NB: the end index does
+        // not change since we need a pointer to the end of the last line.
+        self.start_idx = self.end_idx + 1;
+        Token::Plaintext(((&range).into(), text.into()))
     }
-}
 
-impl<'a> std::iter::IntoIterator for Tokenizer<'a> {
-    type Item = Token;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    // TODO: support the Iterator trait to lazily parse
-    // each token individually.
-    fn into_iter(self) -> Self::IntoIter {
-        Tokenizer::tokenize(self.source).into_iter()
+    fn consume_empty_line(&mut self) -> Option<Token> {
+        let p = self.start_idx;
+        let range = p..p + 1;
+        match self.source.get(range.clone()) {
+            Some("\n") => {
+                self.end_idx = self.start_idx;
+                self.start_idx = p + 1;
+                Some(Token::Empty((&range).into()))
+            }
+            _ => None,
+        }
     }
 }
 
@@ -354,36 +339,38 @@ impl<'a> std::iter::IntoIterator for Tokenizer<'a> {
 mod tests {
     use super::*;
 
-    fn s(line: usize, start: usize, end: usize) -> Span {
-        Span::single_line(line, start, end)
+    fn s(start: usize, end: usize) -> Span {
+        Span::new(start, end)
     }
 
     #[test]
     fn test_empty_source() {
         let source = "";
-        let result = Tokenizer::tokenize(source);
+        let mut tokenizer = Tokenizer::new(source);
+        let result = tokenizer.tokenize();
 
-        assert_eq!(vec![Token::Eof(s(0, 0, 0))], result);
+        assert_eq!(vec![Token::Eof(s(0, 0))], result);
     }
 
     #[test]
     fn test_empty_lines() {
         // TODO: trim empty lines from source?
         let source = "\n\nHello, World!\n\n";
-        let result = Tokenizer::tokenize(source);
+        let mut tokenizer = Tokenizer::new(source);
+        let result = tokenizer.tokenize();
         assert_eq!(
             vec![
-                Token::EmptyStart(s(0, 0, 0)),
-                Token::Empty(s(0, 0, 0)),
-                Token::Empty(s(1, 0, 0)),
-                Token::EmptyEnd(s(2, 0, 0)),
-                Token::ParagraphStart(s(2, 0, 0)),
-                Token::Plaintext((s(2, 0, 13), "Hello, World!".into())),
-                Token::ParagraphEnd(s(3, 0, 0)),
-                Token::EmptyStart(s(3, 0, 0)),
-                Token::Empty(s(3, 0, 0)),
-                Token::EmptyEnd(s(4, 0, 0)),
-                Token::Eof(s(4, 0, 0))
+                Token::EmptyStart(s(0, 0)),
+                Token::Empty(s(0, 0)), // TODO: (0, 1)?
+                Token::Empty(s(1, 2)),
+                Token::EmptyEnd(s(1, 1)),
+                Token::ParagraphStart(s(2, 2)),
+                Token::Plaintext((s(2, 15), "Hello, World!".into())),
+                Token::ParagraphEnd(s(15, 15)), // TODO: (14, 14)?
+                Token::EmptyStart(s(16, 16)),
+                Token::Empty(s(16, 16)), // TODO: (16, 17)?
+                Token::EmptyEnd(s(16, 16)),
+                Token::Eof(s(17, 17))
             ],
             result
         );
@@ -392,14 +379,14 @@ mod tests {
     #[test]
     fn test_single_paragraph() {
         let source = "Hello, World!";
-        let result = Tokenizer::tokenize(source);
-
+        let mut tokenizer = Tokenizer::new(source);
+        let result = tokenizer.tokenize();
         assert_eq!(
             vec![
-                Token::ParagraphStart(s(0, 0, 0)),
-                Token::Plaintext((s(0, 0, 13), "Hello, World!".into())),
-                Token::ParagraphEnd(s(1, 0, 0)),
-                Token::Eof(s(1, 0, 0))
+                Token::ParagraphStart(s(0, 0)),
+                Token::Plaintext((s(0, 13), "Hello, World!".into())),
+                Token::ParagraphEnd(s(13, 13)),
+                Token::Eof(s(14, 14))
             ],
             result
         );
@@ -408,16 +395,16 @@ mod tests {
     #[test]
     fn test_header_paragraph() {
         let source = "# Title\nHello, World!";
-        let result = Tokenizer::tokenize(source);
-
+        let mut tokenizer = Tokenizer::new(source);
+        let result = tokenizer.tokenize();
         assert_eq!(
             vec![
-                Token::Header((s(0, 0, 2), 1)),
-                Token::Plaintext((s(0, 2, 7), "Title".into())),
-                Token::ParagraphStart(s(1, 0, 0)),
-                Token::Plaintext((s(1, 0, 13), "Hello, World!".into())),
-                Token::ParagraphEnd(s(2, 0, 0)),
-                Token::Eof(s(2, 0, 0))
+                Token::Header((s(0, 2), 1)),
+                Token::Plaintext((s(2, 7), "Title".into())),
+                Token::ParagraphStart(s(8, 8)),
+                Token::Plaintext((s(8, 21), "Hello, World!".into())),
+                Token::ParagraphEnd(s(21, 21)),
+                Token::Eof(s(22, 22))
             ],
             result
         );
@@ -426,35 +413,35 @@ mod tests {
     #[test]
     fn test_nested_lists() {
         let source = "- One\n- Two\n  - Three\n- Four";
-        let result = Tokenizer::tokenize(source);
-
+        let mut tokenizer = Tokenizer::new(source);
+        let result = tokenizer.tokenize();
         assert_eq!(
             vec![
-                Token::UnorderedListStart((s(0, 0, 2), 2)),
-                Token::ListItemStart((s(0, 0, 2), 2)),
-                Token::ParagraphStart(s(0, 0, 2)),
-                Token::Plaintext((s(0, 2, 5), "One".into())),
-                Token::ParagraphEnd(s(1, 0, 0)),
-                Token::ListItemEnd(s(1, 0, 0)),
-                Token::ListItemStart((s(1, 0, 2), 2)),
-                Token::ParagraphStart(s(1, 0, 2)),
-                Token::Plaintext((s(1, 2, 5), "Two".into())),
-                Token::ParagraphEnd(s(2, 0, 0)),
-                Token::UnorderedListStart((s(2, 0, 4), 4)),
-                Token::ListItemStart((s(2, 0, 4), 4)),
-                Token::ParagraphStart(s(2, 0, 4)),
-                Token::Plaintext((s(2, 4, 9), "Three".into())),
-                Token::ParagraphEnd(s(3, 0, 0)),
-                Token::ListItemEnd(s(3, 0, 0)),
-                Token::UnorderedListEnd(s(3, 0, 0)),
-                Token::ListItemEnd(s(3, 0, 0)),
-                Token::ListItemStart((s(3, 0, 2), 2)),
-                Token::ParagraphStart(s(3, 0, 2)),
-                Token::Plaintext((s(3, 2, 6), "Four".into())),
-                Token::ParagraphEnd(s(4, 0, 0)),
-                Token::ListItemEnd(s(4, 0, 0)),
-                Token::UnorderedListEnd(s(4, 0, 0)),
-                Token::Eof(s(4, 0, 0))
+                Token::UnorderedListStart((s(0, 2), 2)),
+                Token::ListItemStart((s(0, 2), 2)),
+                Token::ParagraphStart(s(0, 2)),
+                Token::Plaintext((s(2, 5), "One".into())),
+                Token::ParagraphEnd(s(5, 5)),
+                Token::ListItemEnd(s(5, 5)),
+                Token::ListItemStart((s(6, 8), 2)),
+                Token::ParagraphStart(s(6, 8)),
+                Token::Plaintext((s(8, 11), "Two".into())),
+                Token::ParagraphEnd(s(11, 11)),
+                Token::UnorderedListStart((s(12, 16), 4)),
+                Token::ListItemStart((s(12, 16), 4)),
+                Token::ParagraphStart(s(12, 16)),
+                Token::Plaintext((s(16, 21), "Three".into())),
+                Token::ParagraphEnd(s(21, 21)),
+                Token::ListItemEnd(s(21, 21)),
+                Token::UnorderedListEnd(s(21, 21)),
+                Token::ListItemEnd(s(21, 21)),
+                Token::ListItemStart((s(22, 24), 2)),
+                Token::ParagraphStart(s(22, 24)),
+                Token::Plaintext((s(24, 28), "Four".into())),
+                Token::ParagraphEnd(s(28, 28)),
+                Token::ListItemEnd(s(28, 28)),
+                Token::UnorderedListEnd(s(28, 28)),
+                Token::Eof(s(29, 29))
             ],
             result
         );
@@ -469,29 +456,29 @@ mod tests {
             "> - aliquando id",
         ]
         .join("\n");
-        let result = Tokenizer::tokenize(&source[..]);
-
+        let mut tokenizer = Tokenizer::new(&source[..]);
+        let result = tokenizer.tokenize();
         assert_eq!(
             vec![
-                Token::BlockquoteStart(s(0, 0, 2)),
-                Token::ParagraphStart(s(0, 0, 2)),
-                Token::Plaintext((s(0, 2, 19), "Lorem ipsum dolor".into())),
-                Token::Plaintext((s(1, 0, 9), "sit amet.".into())),
-                Token::ParagraphEnd(s(2, 0, 0)),
-                Token::UnorderedListStart((s(2, 2, 4), 4)),
-                Token::ListItemStart((s(2, 2, 4), 4)),
-                Token::ParagraphStart(s(2, 2, 4)),
-                Token::Plaintext((s(2, 4, 26), "Qui *quodsi iracundia*".into())),
-                Token::ParagraphEnd(s(3, 0, 0)),
-                Token::ListItemEnd(s(3, 0, 0)),
-                Token::ListItemStart((s(3, 2, 4), 4)),
-                Token::ParagraphStart(s(3, 2, 4)),
-                Token::Plaintext((s(3, 4, 16), "aliquando id".into())),
-                Token::ParagraphEnd(s(4, 0, 0)),
-                Token::ListItemEnd(s(4, 0, 0)),
-                Token::UnorderedListEnd(s(4, 0, 0)),
-                Token::BlockquoteEnd(s(4, 0, 0)),
-                Token::Eof(s(4, 0, 0))
+                Token::BlockquoteStart(s(0, 2)),
+                Token::ParagraphStart(s(0, 2)),
+                Token::Plaintext((s(2, 19), "Lorem ipsum dolor".into())),
+                Token::Plaintext((s(20, 29), "sit amet.".into())),
+                Token::ParagraphEnd(s(29, 29)),
+                Token::UnorderedListStart((s(32, 34), 4)),
+                Token::ListItemStart((s(32, 34), 4)),
+                Token::ParagraphStart(s(32, 34)),
+                Token::Plaintext((s(34, 56), "Qui *quodsi iracundia*".into())),
+                Token::ParagraphEnd(s(56, 56)),
+                Token::ListItemEnd(s(56, 56)),
+                Token::ListItemStart((s(59, 61), 4)),
+                Token::ParagraphStart(s(59, 61)),
+                Token::Plaintext((s(61, 73), "aliquando id".into())),
+                Token::ParagraphEnd(s(73, 73)),
+                Token::ListItemEnd(s(73, 73)),
+                Token::UnorderedListEnd(s(73, 73)),
+                Token::BlockquoteEnd(s(73, 73)),
+                Token::Eof(s(74, 74))
             ],
             result
         );

@@ -6,7 +6,8 @@ use parse::Parser;
 use token::Tokenizer;
 
 pub fn parse(source: &str) -> String {
-    let tokens = Tokenizer::new(source);
+    let mut tokenizer = Tokenizer::new(source);
+    let tokens = tokenizer.tokenize();
 
     let mut parser = Parser::new();
 
