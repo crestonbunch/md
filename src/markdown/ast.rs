@@ -19,13 +19,13 @@ pub enum ContainerBlock {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum LeafBlock {
-    Empty(Span, Vec<Line>),
-    Paragraph(Span, Vec<Line>),
-    Header(Span, usize, Line),
+    Empty(Span, Vec<Inline>),
+    Paragraph(Span, Vec<Inline>),
+    Header(Span, usize, Vec<Inline>),
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub enum Line {
+pub enum Inline {
     Empty(Span),
     Plaintext(Span, String),
 }

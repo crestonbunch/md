@@ -61,10 +61,11 @@ pomelo! {
     %type doc Vec<ast::Block>;
     %type block (Span, ast::Block);
     %type blocks (Span, Vec<ast::Block>);
-    %type plaintext (Span, Vec<ast::Line>);
+    %type plaintext (Span, ast::Inline);
+    %type inline (Span, Vec<ast::Inline>);
     %type header (Span, ast::LeafBlock);
     %type paragraph (Span, ast::LeafBlock);
-    %type empty_lines (Span, Vec<ast::Line>);
+    %type empty_lines (Span, Vec<ast::Inline>);
     %type empty (Span, ast::LeafBlock);
     %type blockquote (Span, ast::ContainerBlock);
     %type ul (Span, ast::ContainerBlock);
@@ -85,24 +86,26 @@ pomelo! {
     block ::= ul((sl, l)) { (sl, ast::Block::Container(l)) };
     block ::= ol((sl, l)) { (sl, ast::Block::Container(l)) };
 
-    plaintext ::= plaintext((sa, a)) Plaintext((sb, b)) {
-       (sa + sb, [a, vec![ast::Line::Plaintext(sb, b)]].concat())
-    };
-    plaintext ::= Plaintext((sa, a)) { (sa, vec![ast::Line::Plaintext(sa, a)]) };
+    plaintext ::= Plaintext((sa, a)) { (sa, ast::Inline::Plaintext(sa, a)) };
+    inline ::= inline((sa, a)) plaintext((sb, b)) { (sa + sb, [a, vec![b]].concat()) };
+    inline ::= plaintext((sa, a)) { (sa, vec![a]) };
+    inline ::= DoubleAsterisk inline(x) DoubleAsterisk { x }; // TODO: strong
 
-    header ::= Header((sa, size)) Plaintext((sb, b)) {
-        let b = ast::Line::Plaintext(sb, b);
+    header ::= Header((sa, size)) inline((sb, b)) {
         (sa + sb, ast::LeafBlock::Header(sa + sb, size, b))
     }
+    header ::= Header((sa, size)) {
+        (sa, ast::LeafBlock::Header(sa, size, vec![]))
+    }
 
-    paragraph ::= ParagraphStart(sa) plaintext((sb, b)) ParagraphEnd {
+    paragraph ::= ParagraphStart(sa) inline((sb, b)) ParagraphEnd {
        (sa + sb, ast::LeafBlock::Paragraph(sa + sb, b))
     }
 
     empty_lines ::= empty_lines((sa, a)) Empty(sb) {
-        (sa + sb, [a, vec![ast::Line::Empty(sb)]].concat())
+        (sa + sb, [a, vec![ast::Inline::Empty(sb)]].concat())
     }
-    empty_lines ::= Empty(sa) { (sa, vec![ast::Line::Empty(sa)] )}
+    empty_lines ::= Empty(sa) { (sa, vec![ast::Inline::Empty(sa)] )}
     empty ::= EmptyStart(sa) EmptyEnd { (sa, ast::LeafBlock::Empty(sa, vec![])) }
     empty ::= EmptyStart(sa) empty_lines((sb, b)) EmptyEnd {
         (sa + sb, ast::LeafBlock::Empty(sa + sb, b))
@@ -166,20 +169,19 @@ mod tests {
             vec![
                 ast::Block::Leaf(ast::LeafBlock::Paragraph(
                     Span::new(0, 5),
-                    vec![ast::Line::Plaintext(Span::new(0, 5), "Hello".into())]
+                    vec![ast::Inline::Plaintext(Span::new(0, 5), "Hello".into())]
                 )),
                 ast::Block::Leaf(ast::LeafBlock::Empty(
-                    Span::new(6, 9),
+                    Span::new(6, 8),
                     vec![
-                        ast::Line::Empty(Span::new(6, 6)),
-                        ast::Line::Empty(Span::new(6, 7)),
-                        ast::Line::Empty(Span::new(7, 8)),
-                        ast::Line::Empty(Span::new(8, 9)),
+                        ast::Inline::Empty(Span::new(6, 6)),
+                        ast::Inline::Empty(Span::new(7, 7)),
+                        ast::Inline::Empty(Span::new(8, 8)),
                     ]
                 )),
                 ast::Block::Leaf(ast::LeafBlock::Paragraph(
                     Span::new(9, 14),
-                    vec![ast::Line::Plaintext(Span::new(9, 14), "World".into())]
+                    vec![ast::Inline::Plaintext(Span::new(9, 14), "World".into())]
                 )),
             ],
             result
@@ -204,13 +206,13 @@ mod tests {
                 ast::Block::Leaf(ast::LeafBlock::Header(
                     Span::new(0, 7),
                     1,
-                    ast::Line::Plaintext(Span::new(2, 7), "Title".into())
+                    vec![ast::Inline::Plaintext(Span::new(2, 7), "Title".into())]
                 )),
                 ast::Block::Leaf(ast::LeafBlock::Paragraph(
                     Span::new(8, 21),
                     vec![
-                        ast::Line::Plaintext(Span::new(8, 14), "Hello,".into()),
-                        ast::Line::Plaintext(Span::new(15, 21), "World!".into()),
+                        ast::Inline::Plaintext(Span::new(8, 14), "Hello,".into()),
+                        ast::Inline::Plaintext(Span::new(15, 21), "World!".into()),
                     ]
                 )),
             ],
