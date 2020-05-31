@@ -143,7 +143,7 @@ impl Tokenizer {
                             self.consume_line(),
                         ]
                         .concat(),
-                        Probe::Empty(range) => vec![],
+                        Probe::Empty(_) => vec![],
                         Probe::Eof(_) => vec![],
                     }
                 })
