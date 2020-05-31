@@ -165,7 +165,6 @@ impl Tokenizer {
         // empty blocks before pushing the paragraph/plaintext blocks.
         // TODO: is there a more elegant place to put this?
         let range = self.end_idx..self.end_idx;
-        dbg!(self.start_idx, self.end_idx);
         if let Some(Token::EmptyStart(_)) = unmatched.get(0) {
             t.push(Token::EmptyEnd((&range).into()));
             unmatched = (&unmatched[1..]).into();
