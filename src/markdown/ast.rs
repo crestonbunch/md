@@ -10,7 +10,6 @@ pub enum Block {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum ContainerBlock {
-    // TODO:
     Blockquote(Span, Vec<Block>),
     UnorderedList(Span, Vec<Block>),
     OrderedList(Span, Vec<Block>),

@@ -143,7 +143,7 @@ impl Tokenizer {
                             self.consume_line(),
                         ]
                         .concat(),
-                        Probe::Empty(_) => vec![],
+                        Probe::Empty(_) => self.consume_empty_line().into_iter().collect(),
                         Probe::Eof(_) => vec![],
                     }
                 })
@@ -228,17 +228,16 @@ impl Tokenizer {
 
     fn probe(&mut self) -> Vec<Probe> {
         let start_idx = self.start_idx;
-        let line_start = start_idx;
+        if start_idx >= self.source.len() {
+            // The Eof probe is a special case indicating the end of
+            // the source and we should close all open blocks.
+            return vec![Probe::Eof(start_idx..start_idx)];
+        }
+
+        let line_start = self.start_idx;
         let mut probes = vec![];
         // Start probing for line indicators
         loop {
-            if start_idx >= self.source.len() {
-                // The Eof probe is a special case indicating the end of
-                // the source and we should close all open blocks.
-                probes.push(Probe::Eof(start_idx..start_idx));
-                return probes;
-            }
-
             match self.probe_block(line_start) {
                 // Stop as soon as we find plaintext -- any remaining
                 // tokens are parsed as part of the line.
@@ -262,10 +261,17 @@ impl Tokenizer {
         // Split the input source into three chunks: whitespace, token,
         // whitespace. The token may be a block start token.
         let (_, a) = Tokenizer::probe_whitespace(start_idx, source);
+        if let Some(b) = Tokenizer::probe_blockquote(a, source) {
+            let (_, end_idx) = Tokenizer::probe_whitespace(b, source);
+            // Block quotes do not require a space following the >,
+            // so we short-circuit if we detect this is a block quote.
+            self.start_idx = end_idx;
+            return Some(Probe::Blockquote(start_idx..end_idx));
+        }
+
         let (token, b) = Tokenizer::probe_non_whitespace(a, source);
         let (ws, end_idx) = Tokenizer::probe_whitespace(b, source);
 
-        // TODO: make sure there is whitespace after block starters
         // TODO: support any number for ordered lists
         // TODO: tabs are not the same width as spaces
 
@@ -280,7 +286,6 @@ impl Tokenizer {
             "####" if !ws.is_empty() => Probe::Header(range, 4),
             "#####" if !ws.is_empty() => Probe::Header(range, 5),
             "######" if !ws.is_empty() => Probe::Header(range, 6),
-            ">" => Probe::Blockquote(range),
             "" => Probe::Empty(range),
             // We did not consume a block token, so the remainder
             // of the line is just plaintext.
@@ -294,13 +299,21 @@ impl Tokenizer {
 
     fn probe_whitespace(start_idx: usize, source: &str) -> (&str, usize) {
         let mut p = start_idx;
-        while match &source.get(p..p + 1) {
+        while match source.get(p..p + 1) {
             Some(" ") | Some("\t") => true,
             _ => false,
         } {
             p += 1;
         }
         (&source[start_idx..p], p)
+    }
+
+    fn probe_blockquote(start_idx: usize, source: &str) -> Option<usize> {
+        let p = start_idx;
+        if let Some(">") = &source.get(p..p + 1) {
+            return Some(p + 1);
+        }
+        None
     }
 
     fn probe_non_whitespace(start_idx: usize, source: &str) -> (&str, usize) {
@@ -313,6 +326,7 @@ impl Tokenizer {
         }
         (&source[start_idx..p], p)
     }
+
     fn consume_line(&mut self) -> Vec<Token> {
         let mut tokens = vec![];
         self.end_idx = self.start_idx;
@@ -442,6 +456,42 @@ mod tests {
                 Token::Plaintext((s(15, 21), "World!".into())),
                 Token::ParagraphEnd(s(21, 21)),
                 Token::Eof(s(22, 22))
+            ],
+            result
+        );
+    }
+
+    #[test]
+    fn test_blockquote_without_space() {
+        let source = ">Test";
+        let mut tokenizer = Tokenizer::new(source);
+        let result = tokenizer.tokenize();
+        assert_eq!(
+            vec![
+                Token::BlockquoteStart(s(0, 1)),
+                Token::ParagraphStart(s(0, 1)),
+                Token::Plaintext((s(1, 5), "Test".into())),
+                Token::ParagraphEnd(s(5, 5)),
+                Token::BlockquoteEnd(s(5, 5)),
+                Token::Eof(s(6, 6))
+            ],
+            result
+        );
+    }
+
+    #[test]
+    fn test_empty_blockquote() {
+        let source = ">\n";
+        let mut tokenizer = Tokenizer::new(source);
+        let result = tokenizer.tokenize();
+        assert_eq!(
+            vec![
+                Token::BlockquoteStart(s(0, 1)),
+                Token::EmptyStart(s(1, 1)),
+                Token::Empty(s(1, 1)),
+                Token::EmptyEnd(s(1, 1)),
+                Token::BlockquoteEnd(s(1, 1)),
+                Token::Eof(s(2, 2))
             ],
             result
         );
