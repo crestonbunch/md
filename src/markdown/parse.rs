@@ -115,17 +115,17 @@ pomelo! {
         (sa + sb, ast::ContainerBlock::Blockquote(sa + sb, b))
     };
 
-    ul ::= UnorderedListStart((sa, _)) list_items((sb, b)) UnorderedListEnd {
-        (sa + sb, ast::ContainerBlock::UnorderedList(sa + sb, b))
+    ul ::= UnorderedListStart((sa, a)) list_items((sb, b)) UnorderedListEnd {
+        (sa + sb, ast::ContainerBlock::UnorderedList(sa + sb, a, b))
     };
-    ol ::= OrderedListStart((sa, _)) list_items((sb, b)) OrderedListEnd {
-        (sa + sb, ast::ContainerBlock::OrderedList(sa + sb, b))
+    ol ::= OrderedListStart((sa, a)) list_items((sb, b)) OrderedListEnd {
+        (sa + sb, ast::ContainerBlock::OrderedList(sa + sb, a, b))
     };
 
     list_items ::= list_items((sa, a)) list_item((sb, b)) { (sa + sb, [a, vec![b]].concat()) };
     list_items ::= list_item((sa, a)) { (sa, vec![a]) };
-    list_item ::= ListItemStart((sa, _)) blocks((sb, b)) ListItemEnd {
-        (sa + sb, ast::Block::Container(ast::ContainerBlock::ListItem(sa + sb, b)))
+    list_item ::= ListItemStart((sa, a)) blocks((sb, b)) ListItemEnd {
+        (sa + sb, ast::Block::Container(ast::ContainerBlock::ListItem(sa + sb, a, b)))
     };
 }
 

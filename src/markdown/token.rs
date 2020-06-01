@@ -234,11 +234,10 @@ impl Tokenizer {
             return vec![Probe::Eof(start_idx..start_idx)];
         }
 
-        let line_start = self.start_idx;
         let mut probes = vec![];
         // Start probing for line indicators
         loop {
-            match self.probe_block(line_start) {
+            match self.probe_block() {
                 // Stop as soon as we find plaintext -- any remaining
                 // tokens are parsed as part of the line.
                 None => return probes,
@@ -255,14 +254,13 @@ impl Tokenizer {
         }
     }
 
-    fn probe_block(&mut self, line_start: usize) -> Option<Probe> {
+    fn probe_block(&mut self) -> Option<Probe> {
         let start_idx = self.start_idx;
         let source = &self.source[..];
         // Split the input source into three chunks: whitespace, token,
         // whitespace. The token may be a block start token.
         let (_, a) = Tokenizer::probe_whitespace(start_idx, source);
-        if let Some(b) = Tokenizer::probe_blockquote(a, source) {
-            let (_, end_idx) = Tokenizer::probe_whitespace(b, source);
+        if let Some(end_idx) = Tokenizer::probe_blockquote(a, source) {
             // Block quotes do not require a space following the >,
             // so we short-circuit if we detect this is a block quote.
             self.start_idx = end_idx;
@@ -272,10 +270,11 @@ impl Tokenizer {
         let (token, b) = Tokenizer::probe_non_whitespace(a, source);
         let (ws, end_idx) = Tokenizer::probe_whitespace(b, source);
 
+        // TODO: spaced vs unspaced lists
         // TODO: support any number for ordered lists
         // TODO: tabs are not the same width as spaces
 
-        let width = end_idx - line_start;
+        let width = end_idx - start_idx;
         let range = start_idx..end_idx;
         let probe = match token {
             "-" | "+" | "*" if !ws.is_empty() => Probe::Ul(range, width),
@@ -547,8 +546,10 @@ mod tests {
         let result = tokenizer.tokenize();
         assert_eq!(
             vec![
-                Token::BlockquoteStart(s(0, 2)),
-                Token::ParagraphStart(s(0, 2)),
+                Token::BlockquoteStart(s(0, 1)),
+                Token::ParagraphStart(s(0, 1)),
+                Token::Plaintext((s(1, 1), "".into())), // TODO: get rid of this
+                Token::Plaintext((s(1, 2), " ".into())),
                 Token::Plaintext((s(2, 7), "Lorem".into())),
                 Token::Plaintext((s(7, 8), " ".into())),
                 Token::Plaintext((s(8, 13), "ipsum".into())),
@@ -558,9 +559,9 @@ mod tests {
                 Token::Plaintext((s(23, 24), " ".into())),
                 Token::Plaintext((s(24, 29), "amet.".into())),
                 Token::ParagraphEnd(s(29, 29)),
-                Token::UnorderedListStart((s(32, 34), 4)),
-                Token::ListItemStart((s(32, 34), 4)),
-                Token::ParagraphStart(s(32, 34)),
+                Token::UnorderedListStart((s(31, 34), 3)),
+                Token::ListItemStart((s(31, 34), 3)),
+                Token::ParagraphStart(s(31, 34)),
                 Token::Plaintext((s(34, 37), "Qui".into())),
                 Token::Plaintext((s(37, 38), " ".into())),
                 Token::Plaintext((s(38, 45), "*quodsi".into())),
@@ -568,8 +569,8 @@ mod tests {
                 Token::Plaintext((s(46, 56), "iracundia*".into())),
                 Token::ParagraphEnd(s(56, 56)),
                 Token::ListItemEnd(s(56, 56)),
-                Token::ListItemStart((s(59, 61), 4)),
-                Token::ParagraphStart(s(59, 61)),
+                Token::ListItemStart((s(58, 61), 3)),
+                Token::ParagraphStart(s(58, 61)),
                 Token::Plaintext((s(61, 70), "aliquando".into())),
                 Token::Plaintext((s(70, 71), " ".into())),
                 Token::Plaintext((s(71, 73), "id".into())),

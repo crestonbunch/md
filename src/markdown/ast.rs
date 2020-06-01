@@ -11,9 +11,9 @@ pub enum Block {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub enum ContainerBlock {
     Blockquote(Span, Vec<Block>),
-    UnorderedList(Span, Vec<Block>),
-    OrderedList(Span, Vec<Block>),
-    ListItem(Span, Vec<Block>),
+    UnorderedList(Span, usize, Vec<Block>),
+    OrderedList(Span, usize, Vec<Block>),
+    ListItem(Span, usize, Vec<Block>),
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
