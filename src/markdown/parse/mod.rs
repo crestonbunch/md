@@ -15,6 +15,8 @@ use token::{Token, Tokenizer};
 // use document::DocumentProbe;
 // use paragraph::ParagraphProbe;
 
+const NON_LEAF_KINDS: [Kind; 2] = [Kind::Document, Kind::BlockQuote];
+
 const DEFAULT_CAPACITY: usize = 32;
 
 type Link = Rc<RefCell<Node>>;
@@ -91,8 +93,6 @@ impl Node {
         let mut tokenizer = Tokenizer::new(start, source);
         let (a, b, c) = (tokenizer.next(), tokenizer.next(), tokenizer.next());
         match (self.kind, a, b, c) {
-            // Leaf blocks cannot open any more blocks
-            (Kind::Paragraph, _, _, _) => None,
             (
                 _,
                 Some(Token::Whitespace((_, _))),
@@ -108,21 +108,37 @@ impl Node {
             (_, Some(Token::RightCaret((start, end))), _, _) => {
                 Some((Node::new(Kind::BlockQuote, start), end))
             }
-            (_, Some(Token::Plaintext((start, _))), _, _) => {
-                let node = Node::new(Kind::Paragraph, start);
-                Some((node, start))
-            }
             _ => None,
         }
     }
 
     fn consume(&mut self, start: usize, source: &str) -> Option<usize> {
-        if let Some(open) = self.children.last() {
-            let mut open = open.borrow_mut();
-            if let Some(p) = open.consume(start, source) {
-                return Some(p);
+        // If we consume a non-leaf block that has no children,
+        // we need to push a child to consume it.
+        if self.children.is_empty() {
+            match self.kind {
+                Kind::Document | Kind::BlockQuote => {
+                    self.children.push(Node::new(Kind::Paragraph, self.start))
+                }
+                _ => (),
             }
         }
+
+        // If this is a non-leaf block, we need to move to
+        // its last child to consume it.
+        if NON_LEAF_KINDS.contains(&self.kind) {
+            if let Some(open) = self.children.last() {
+                let mut open = open.borrow_mut();
+                if let Some(p) = open.consume(start, source) {
+                    return Some(p);
+                } else {
+                    // We did not consume anything, so that
+                    // means we can close this child.
+                    open.end = Some(start);
+                }
+            }
+        }
+
         // For leaf blocks we consume tokens until the next new line
         let tokenizer = Tokenizer::new(start, source);
         match self.kind {
@@ -234,11 +250,13 @@ pub fn parse(source: &str) -> Link {
         let (new_node, new_p) = Node::probe_all(node, p, source);
         node = new_node;
         p = new_p;
+        dbg!(&node, p);
 
-        if let Some(_) = {
+        if let Some(open) = {
             let borrow = node.borrow();
             borrow.open(p, source)
         } {
+            dbg!(&open);
             // We found a new block opener, so let's close any open blocks
             // before we open new ones.
             node.borrow().close_child(p);
@@ -276,7 +294,7 @@ mod test {
 
     #[test]
     fn test_blockquote() {
-        let result = parse("> Hel lo,\nWorld!");
+        let result = parse("> Hello,\nWorld!");
         dbg!(&result);
     }
 }
