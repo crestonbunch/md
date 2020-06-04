@@ -1,3 +1,5 @@
+extern crate test;
+
 mod token;
 
 use std::cell::RefCell;
@@ -241,7 +243,6 @@ pub fn parse(source: &str) -> Link {
         let borrow = doc.borrow();
         borrow.end
     } {
-        dbg!(p);
         let mut node = Rc::clone(&doc);
 
         // First we iterate through the open blocks, matching each block
@@ -250,13 +251,11 @@ pub fn parse(source: &str) -> Link {
         let (new_node, new_p) = Node::probe_all(node, p, source);
         node = new_node;
         p = new_p;
-        dbg!(&node, p);
 
-        if let Some(open) = {
+        if let Some(_) = {
             let borrow = node.borrow();
             borrow.open(p, source)
         } {
-            dbg!(&open);
             // We found a new block opener, so let's close any open blocks
             // before we open new ones.
             node.borrow().close_child(p);
@@ -275,8 +274,9 @@ pub fn parse(source: &str) -> Link {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
+    use test::Bencher;
 
     #[test]
     fn test_empty() {
@@ -296,5 +296,10 @@ mod test {
     fn test_blockquote() {
         let result = parse("> Hello,\nWorld!");
         dbg!(&result);
+    }
+
+    #[bench]
+    fn bench_simple_parse(b: &mut Bencher) {
+        b.iter(|| parse("> Hello,\nWorld!"));
     }
 }

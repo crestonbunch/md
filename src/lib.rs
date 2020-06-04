@@ -1,3 +1,5 @@
+#![feature(test)]
+
 mod markdown;
 mod utils;
 
