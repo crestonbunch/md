@@ -1,11 +1,8 @@
-pub mod ast;
 pub mod parse;
-pub mod token;
-
-use parse::Parser;
-use token::Tokenizer;
 
 pub fn parse(source: &str) -> String {
+    source.into()
+    /*
     let mut tokenizer = Tokenizer::new(source);
     let tokens = tokenizer.tokenize();
 
@@ -19,4 +16,5 @@ pub fn parse(source: &str) -> String {
 
     // TODO: use native structs to avoid serialization?
     serde_json::to_string(&result).unwrap()
+    */
 }
