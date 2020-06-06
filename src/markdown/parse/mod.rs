@@ -17,7 +17,7 @@ use token::{Token, Tokenizer};
 // use document::DocumentProbe;
 // use paragraph::ParagraphProbe;
 
-const NON_LEAF_KINDS: [Kind; 2] = [Kind::Document, Kind::BlockQuote];
+const NON_LEAF_KINDS: [Kind; 3] = [Kind::Document, Kind::BlockQuote, Kind::Empty];
 
 const DEFAULT_CAPACITY: usize = 32;
 
@@ -25,10 +25,14 @@ type Link = Rc<RefCell<Node>>;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Kind {
-    // Block tokens
+    // Container block tokens
     Document,
     BlockQuote,
+    Empty,
+    // Leaf block tokens
+    Heading(usize),
     Paragraph,
+    EmptyLine,
     // Inline tokens
     Plaintext,
     Whitespace,
@@ -82,11 +86,15 @@ impl Node {
 
     fn probe(&self, start: usize, source: &str) -> Option<usize> {
         let mut tokenizer = Tokenizer::new(start, source);
-        let next = tokenizer.next();
-        match (self.kind, next) {
-            (Kind::BlockQuote, Some(Token::RightCaret((_, end)))) => Some(end),
-            (Kind::Paragraph, Some(_)) => Some(start),
-            (Kind::Document, Some(_)) => None,
+        let (a, b) = (tokenizer.next(), tokenizer.next());
+        match (self.kind, a, b) {
+            (Kind::BlockQuote, Some(Token::RightCaret((_, end))), _) => Some(end),
+            (Kind::Paragraph, Some(Token::Newline(..)), _) => None,
+            (Kind::Paragraph, Some(Token::Whitespace(..)), Some(Token::Newline(..))) => None,
+            (Kind::Paragraph, Some(_), _) => Some(start),
+            (Kind::Empty, Some(Token::Newline((_, end))), _) => Some(end),
+            (Kind::Empty, Some(Token::Whitespace(..)), Some(Token::Newline((_, end)))) => Some(end),
+            (Kind::Document, Some(_), _) => None,
             _ => None,
         }
     }
@@ -95,6 +103,7 @@ impl Node {
         let mut tokenizer = Tokenizer::new(start, source);
         let (a, b, c) = (tokenizer.next(), tokenizer.next(), tokenizer.next());
         match (self.kind, a, b, c) {
+            // Block quote open
             (
                 _,
                 Some(Token::Whitespace((_, _))),
@@ -110,66 +119,44 @@ impl Node {
             (_, Some(Token::RightCaret((start, end))), _, _) => {
                 Some((Node::new(Kind::BlockQuote, start), end))
             }
+            // Heading open
+            (_, Some(Token::Hash((start, end))), Some(Token::Whitespace((_, _))), _)
+                if (end - start) <= 6 =>
+            {
+                Some((Node::new(Kind::Heading(end - start), start), end))
+            }
+            // Empty lines
+            (k, Some(Token::Newline((start, end))), _, _) if k != Kind::Empty => {
+                Some((Node::new(Kind::Empty, start), end))
+            }
+            (k, Some(Token::Whitespace((start, _))), Some(Token::Newline((_, _))), _)
+                if k != Kind::Empty =>
+            {
+                Some((Node::new(Kind::Empty, start), start))
+            }
             _ => None,
         }
     }
 
     fn consume(&mut self, start: usize, source: &str) -> Option<usize> {
-        // If we consume a non-leaf block that has no children,
-        // we need to push a child to consume it.
-        if self.children.is_empty() {
-            match self.kind {
-                Kind::Document | Kind::BlockQuote => {
-                    self.children.push(Node::new(Kind::Paragraph, self.start))
-                }
-                _ => (),
-            }
-        }
-
-        // If this is a non-leaf block, we need to move to
-        // its last child to consume it.
-        if NON_LEAF_KINDS.contains(&self.kind) {
-            if let Some(open) = self.children.last() {
-                let mut open = open.borrow_mut();
-                if let Some(p) = open.consume(start, source) {
-                    return Some(p);
-                } else {
-                    // We did not consume anything, so that
-                    // means we can close this child.
-                    open.end = Some(start);
-                }
-            }
-        }
-
-        // For leaf blocks we consume tokens until the next new line
-        let tokenizer = Tokenizer::new(start, source);
         match self.kind {
-            Kind::Paragraph => {
-                let mut p = start;
-                let mut empty = true;
-                let tokens = tokenizer
-                    .into_iter()
-                    .take_while(|t| match t {
-                        Token::Newline((_, end)) => {
-                            p = *end;
-                            false
-                        }
-                        Token::RightCaret((_, end))
-                        | Token::Plaintext((_, end))
-                        | Token::Whitespace((_, end)) => {
-                            p = *end;
-                            empty = false;
-                            true
-                        }
-                    })
-                    .map(|t| t.into());
-                self.children.extend(tokens);
-                if empty {
-                    None
-                } else {
+            Kind::Document => container::consume(self, start, source),
+            Kind::BlockQuote => container::consume(self, start, source),
+            Kind::Empty => empty::consume(self, start, source),
+            Kind::EmptyLine => empty_line::consume(self, start, source),
+            Kind::Paragraph => leaf::consume(self, start, source),
+            Kind::Heading(..) => {
+                if let Some(p) = leaf::consume(self, start, source) {
+                    // Headings cannot be continued onto the next line
+                    // so we close it immediately.
+                    self.end = Some(p);
                     Some(p)
+                } else {
+                    self.end = Some(start);
+                    None
                 }
             }
+            // Inline nodes cannot be consumed
             _ => None,
         }
     }
@@ -198,7 +185,6 @@ impl Node {
         let mut node = node;
 
         // Now push all of the new open blocks into the tree
-        let parent = Rc::clone(&node);
         while let Some((open, new_p)) = {
             let borrow = node.borrow();
             borrow.open(p, source)
@@ -252,7 +238,7 @@ pub fn parse(source: &str) -> Link {
         node = new_node;
         p = new_p;
 
-        if let Some(_) = {
+        if let Some(open) = {
             let borrow = node.borrow();
             borrow.open(p, source)
         } {
@@ -271,6 +257,138 @@ pub fn parse(source: &str) -> Link {
     }
 
     doc
+}
+
+mod container {
+    use super::*;
+
+    pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
+        // If we consume a non-leaf block that has no open child,
+        // we need to push a child to consume.
+        if match node.children.last() {
+            None => true,
+            Some(node) if node.borrow().end.is_some() => true,
+            _ => false,
+        } {
+            node.children.push(Node::new(Kind::Paragraph, start));
+        }
+
+        if let Some(open) = node.children.last() {
+            let mut open = open.borrow_mut();
+            if let Some(p) = open.consume(start, source) {
+                return Some(p);
+            } else {
+                // We did not consume anything, so that
+                // means we can close this child.
+                open.end = Some(start);
+            }
+        }
+
+        None
+    }
+}
+
+mod empty {
+    use super::*;
+
+    pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
+        // If we consume a non-leaf block that has no open child,
+        // we need to push a child to consume.
+        if match node.children.last() {
+            None => true,
+            Some(node) if node.borrow().end.is_some() => true,
+            _ => false,
+        } {
+            node.children.push(Node::new(Kind::EmptyLine, start))
+        }
+
+        if let Some(open) = node.children.last() {
+            let mut open = open.borrow_mut();
+            if let Some(p) = open.consume(start, source) {
+                let mut tokenizer = Tokenizer::new(p, source);
+                // An empty empty block is always closed if it is not
+                // continued by a new line or whitespace.
+                match tokenizer.next() {
+                    Some(Token::Newline(..)) | Some(Token::Whitespace(..)) => (),
+                    _ => node.end = Some(p),
+                }
+                return Some(p);
+            }
+        }
+
+        None
+    }
+}
+
+mod empty_line {
+    use super::*;
+
+    pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
+        // For leaf blocks we consume tokens until the next new line
+        let tokenizer = Tokenizer::new(start, source);
+        let mut p = start;
+        let mut empty = true;
+        let tokens = tokenizer
+            .into_iter()
+            .take_while(|t| match t {
+                Token::Whitespace((_, end)) => {
+                    p = *end;
+                    empty = false;
+                    true
+                }
+                Token::RightCaret((_, end))
+                | Token::Hash((_, end))
+                | Token::Plaintext((_, end))
+                | Token::Newline((_, end)) => {
+                    p = *end;
+                    false
+                }
+            })
+            .map(|t| t.into());
+
+        // An empty line is always closed once we hit a new line token
+        node.children.extend(tokens);
+        node.end = Some(p);
+        return node.end;
+    }
+}
+
+mod leaf {
+    use super::*;
+
+    pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
+        // For leaf blocks we consume tokens until the next new line
+        let tokenizer = Tokenizer::new(start, source);
+        if node.end == None {
+            let mut p = start;
+            let mut empty = true;
+            let tokens = tokenizer
+                .into_iter()
+                .take_while(|t| match t {
+                    Token::Newline((_, end)) => {
+                        p = *end;
+                        false
+                    }
+                    Token::RightCaret((_, end))
+                    | Token::Hash((_, end))
+                    | Token::Plaintext((_, end))
+                    | Token::Whitespace((_, end)) => {
+                        p = *end;
+                        empty = false;
+                        true
+                    }
+                })
+                .map(|t| t.into());
+
+            node.children.extend(tokens);
+
+            if !empty {
+                return Some(p);
+            }
+        }
+
+        None
+    }
 }
 
 #[cfg(test)]
@@ -295,6 +413,18 @@ mod tests {
     #[test]
     fn test_blockquote() {
         let result = parse("> Hello,\nWorld!");
+        dbg!(&result);
+    }
+
+    #[test]
+    fn test_heading() {
+        let result = parse("# Hello\nWorld!");
+        dbg!(&result);
+    }
+
+    #[test]
+    fn test_multiple_paragraphs() {
+        let result = parse("Hello\nWorld!\n \n\nHello\nWorld");
         dbg!(&result);
     }
 
