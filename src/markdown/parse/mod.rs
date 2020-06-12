@@ -135,6 +135,26 @@ impl Node {
                 Some(Token::Asterisk((_, end))),
                 Some(Token::Whitespace((_, _))),
                 _,
+            )
+            | (
+                Kind::UnorderedList(UnorderedList {
+                    width,
+                    token: UnorderedListToken::Dash,
+                    ..
+                }),
+                Some(Token::Dash((_, end))),
+                Some(Token::Whitespace((_, _))),
+                _,
+            )
+            | (
+                Kind::UnorderedList(UnorderedList {
+                    width,
+                    token: UnorderedListToken::Plus,
+                    ..
+                }),
+                Some(Token::Plus((_, end))),
+                Some(Token::Whitespace((_, _))),
+                _,
             ) if (width <= end - start + 1) => Some(start),
             (
                 Kind::UnorderedList(UnorderedList {
@@ -144,6 +164,26 @@ impl Node {
                 }),
                 Some(Token::Whitespace((_, _))),
                 Some(Token::Asterisk((_, end))),
+                Some(Token::Whitespace((_, _))),
+            )
+            | (
+                Kind::UnorderedList(UnorderedList {
+                    width,
+                    token: UnorderedListToken::Dash,
+                    ..
+                }),
+                Some(Token::Whitespace((_, _))),
+                Some(Token::Dash((_, end))),
+                Some(Token::Whitespace((_, _))),
+            )
+            | (
+                Kind::UnorderedList(UnorderedList {
+                    width,
+                    token: UnorderedListToken::Plus,
+                    ..
+                }),
+                Some(Token::Whitespace((_, _))),
+                Some(Token::Plus((_, end))),
                 Some(Token::Whitespace((_, _))),
             ) if (width <= end - start + 1) => Some(start),
             (
@@ -192,7 +232,8 @@ impl Node {
                 Some((Node::new(Kind::Heading(end - start), start), end))
             }
             // Unordered list open
-            (
+            (k, Some(Token::Asterisk((start, _))), Some(Token::Whitespace((_, end))), _)
+            | (
                 k,
                 Some(Token::Whitespace((start, _))),
                 Some(Token::Asterisk((_, _))),
@@ -210,15 +251,39 @@ impl Node {
                     end,
                 ))
             }
-            (k, Some(Token::Asterisk((start, _))), Some(Token::Whitespace((_, end))), _)
-                if match k {
-                    Kind::UnorderedList(..) => false,
-                    _ => true,
-                } =>
+            (k, Some(Token::Dash((start, _))), Some(Token::Whitespace((_, end))), _)
+            | (
+                k,
+                Some(Token::Whitespace((start, _))),
+                Some(Token::Dash((_, _))),
+                Some(Token::Whitespace((_, end))),
+            ) if match k {
+                Kind::UnorderedList(..) => false,
+                _ => true,
+            } =>
             {
                 Some((
                     Node::new(
-                        UnorderedList::new(UnorderedListToken::Asterisk, end - start),
+                        UnorderedList::new(UnorderedListToken::Dash, end - start),
+                        start,
+                    ),
+                    end,
+                ))
+            }
+            (k, Some(Token::Plus((start, _))), Some(Token::Whitespace((_, end))), _)
+            | (
+                k,
+                Some(Token::Whitespace((start, _))),
+                Some(Token::Plus((_, _))),
+                Some(Token::Whitespace((_, end))),
+            ) if match k {
+                Kind::UnorderedList(..) => false,
+                _ => true,
+            } =>
+            {
+                Some((
+                    Node::new(
+                        UnorderedList::new(UnorderedListToken::Plus, end - start),
                         start,
                     ),
                     end,
@@ -262,7 +327,7 @@ impl Node {
             Kind::Document => container::consume(self, start, source),
             Kind::BlockQuote => container::consume(self, start, source),
             Kind::UnorderedList(..) => list::consume(self, start, source),
-            Kind::ListItem(..) => container::consume(self, start, source),
+            Kind::ListItem(..) => list_item::consume(self, start, source),
             Kind::Paragraph => leaf::consume(self, start, source),
             Kind::Heading(..) => {
                 if let Some(p) = leaf::consume(self, start, source) {
@@ -393,6 +458,10 @@ mod container {
     use super::*;
 
     pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
+        if start >= source.len() {
+            return None;
+        }
+
         // If we consume a non-leaf block that has no open child,
         // we need to push a child to consume.
         if match node.children.last() {
@@ -435,7 +504,50 @@ mod list {
             }
         }
 
-        container::consume(node, start, source)
+        let result = container::consume(node, start, source);
+
+        match node.children.last() {
+            Some(child) if child.borrow().end.is_some() => {
+                // If the last list item closed itself, that means we can't
+                // continue the list because it ends in empty lines which
+                // are not continued with the proper indentation.
+                node.end = child.borrow().end.clone();
+                return node.end;
+            }
+            _ => return result,
+        }
+    }
+}
+
+mod list_item {
+    use super::*;
+
+    pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
+        if let Some(p) = container::consume(node, start, source) {
+            let mut tokenizer = Tokenizer::new(p, source);
+            // We need to check the case where the list contains empty lines
+            // and close the list item if the following lines are not
+            // indented properly. This is because open() does not create
+            // paragraphs, so any un-indented lines might be treated as
+            // a continuation even after an empty line.
+            match (node.kind, node.children.last(), tokenizer.next()) {
+                (Kind::ListItem(width), Some(child), Some(Token::Whitespace((_, end))))
+                    if child.borrow().kind == Kind::Empty && width < (end - start + 1) =>
+                {
+                    // This list item ends with empty lines, but is continued by
+                    // a block of text at the appropriate indentation level.
+                    return Some(p);
+                }
+                (Kind::ListItem(..), Some(child), _) if child.borrow().kind == Kind::Empty => {
+                    // This list item cannot be continued because the next
+                    // line is not indented the same amount.
+                    node.end = Some(p);
+                    return node.end;
+                }
+                _ => return Some(p),
+            }
+        }
+        None
     }
 }
 
@@ -570,7 +682,8 @@ mod tests {
         // let result = parse("* List item\n  * Second list item");
         // let result = parse("* List item\n\nTestTest\n* Second list item");
         // let result = parse("* List item\n\n   * Second list item");
-        let result = parse("* List item\n  * Nested list\n* Third list item");
+        // let result = parse("* List item\n  * Nested list\n* Third list item");
+        let result = parse("* One list\n- Two list\n+ Three list");
         dbg!(&result);
     }
 
