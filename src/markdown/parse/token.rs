@@ -4,6 +4,7 @@ use std::rc::Rc;
 use crate::markdown::parse::{Kind, Node};
 
 const WHITESPACE_CHARS: [&str; 2] = [" ", "\t"];
+const NUMBER_CHARS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
 type Slice = (usize, usize);
 
@@ -11,6 +12,12 @@ type Slice = (usize, usize);
 pub enum Token {
     RightCaret(Slice),
     Hash(Slice),
+    Dash(Slice),
+    Asterisk(Slice),
+    Plus(Slice),
+    Number(Slice),
+    Period(Slice),
+    CloseParen(Slice),
     Plaintext(Slice),
     Whitespace(Slice),
     Newline(Slice),
@@ -21,6 +28,12 @@ impl Into<Rc<RefCell<Node>>> for Token {
         match self {
             Token::RightCaret((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
             Token::Hash((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
+            Token::Dash((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
+            Token::Asterisk((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
+            Token::Plus((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
+            Token::Number((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
+            Token::Period((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
+            Token::CloseParen((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
             Token::Plaintext((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
             Token::Whitespace((start, end)) => Node::new_inline(Kind::Whitespace, start, end),
             Token::Newline((start, end)) => Node::new_inline(Kind::Whitespace, start, end),
@@ -35,6 +48,7 @@ enum TokenizerState {
     Hash,
     Plaintext,
     Whitespace,
+    Number,
 }
 
 pub struct Tokenizer<'a> {
@@ -75,24 +89,56 @@ impl<'a> Iterator for Tokenizer<'a> {
                     result = Some(Token::Plaintext((self.start, p)));
                     (TokenizerState::Done, p)
                 }
-                (TokenizerState::Plaintext, Some(_)) => {
-                    (TokenizerState::Plaintext, p + 1)
-                }
+                (TokenizerState::Plaintext, Some(_)) => (TokenizerState::Plaintext, p + 1),
                 (TokenizerState::Plaintext, None) => {
                     result = Some(Token::Plaintext((self.start, p)));
                     (TokenizerState::Done, p)
                 }
-                // Hash
-                (TokenizerState::Hash, Some("#")) => {
-                    (TokenizerState::Hash, p + 1)
+                // Number
+                (TokenizerState::Number, Some(c)) if NUMBER_CHARS.contains(&c) => {
+                    (TokenizerState::Number, p + 1)
                 }
+                (TokenizerState::Number, _) => {
+                    result = Some(Token::Number((self.start, p)));
+                    (TokenizerState::Done, p)
+                }
+                // Hash
+                (TokenizerState::Hash, Some("#")) => (TokenizerState::Hash, p + 1),
                 (TokenizerState::Hash, _) => {
                     result = Some(Token::Hash((self.start, p)));
                     (TokenizerState::Done, p)
                 }
+                // Dash
+                (TokenizerState::Unset, Some("-")) => {
+                    result = Some(Token::Dash((self.start, p + 1)));
+                    (TokenizerState::Done, p + 1)
+                }
+                // Asterisk
+                (TokenizerState::Unset, Some("*")) => {
+                    result = Some(Token::Asterisk((self.start, p + 1)));
+                    (TokenizerState::Done, p + 1)
+                }
+                // Plus
+                (TokenizerState::Unset, Some("+")) => {
+                    result = Some(Token::Plus((self.start, p + 1)));
+                    (TokenizerState::Done, p + 1)
+                }
+                // Period
+                (TokenizerState::Unset, Some(".")) => {
+                    result = Some(Token::Period((self.start, p + 1)));
+                    (TokenizerState::Done, p + 1)
+                }
+                // CloseParen
+                (TokenizerState::Unset, Some(")")) => {
+                    result = Some(Token::CloseParen((self.start, p + 1)));
+                    (TokenizerState::Done, p + 1)
+                }
                 // Unset
                 (TokenizerState::Unset, Some(c)) if WHITESPACE_CHARS.contains(&c) => {
                     (TokenizerState::Whitespace, p + 1)
+                }
+                (TokenizerState::Unset, Some(c)) if NUMBER_CHARS.contains(&c) => {
+                    (TokenizerState::Number, p + 1)
                 }
                 (TokenizerState::Unset, Some("\n")) => {
                     result = Some(Token::Newline((self.start, p + 1)));
@@ -106,9 +152,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                     result = Some(Token::Hash((self.start, p + 1)));
                     (TokenizerState::Hash, p + 1)
                 }
-                (TokenizerState::Unset, Some(_)) => {
-                    (TokenizerState::Plaintext, p + 1)
-                }
+                (TokenizerState::Unset, Some(_)) => (TokenizerState::Plaintext, p + 1),
                 // Done
                 _ => (TokenizerState::Done, p),
             };
@@ -153,6 +197,27 @@ mod test {
                 Token::Plaintext((4, 10)),
                 Token::Whitespace((10, 11)),
                 Token::Plaintext((11, 15)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_numbers() {
+        let tokenizer = Tokenizer::new(0, "1. Item\n12. Item");
+        let result = tokenizer.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(
+            result,
+            vec![
+                Token::Number((0, 1)),
+                Token::Period((1, 2)),
+                Token::Whitespace((2, 3)),
+                Token::Plaintext((3, 7)),
+                Token::Newline((7, 8)),
+                Token::Number((8, 10)),
+                Token::Period((10, 11)),
+                Token::Whitespace((11, 12)),
+                Token::Plaintext((12, 16)),
             ]
         );
     }
