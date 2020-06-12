@@ -1,6 +1,14 @@
 extern crate test;
 
+mod block_quote;
+mod container;
+mod empty;
+mod heading;
+mod leaf;
+mod list_item;
+mod paragraph;
 mod token;
+mod unordered_list;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -118,228 +126,49 @@ impl Node {
     fn probe(&self, start: usize, source: &str) -> Option<usize> {
         let mut tokenizer = Tokenizer::new(start, source);
         let (a, b, c) = (tokenizer.next(), tokenizer.next(), tokenizer.next());
-        match (self.kind, a, b, c) {
-            // Block quote
-            (Kind::BlockQuote, Some(Token::RightCaret((_, end))), _, _) => Some(end),
-            // Paragraph
-            (Kind::Paragraph, Some(Token::Newline(..)), _, _) => None,
-            (Kind::Paragraph, Some(Token::Whitespace(..)), Some(Token::Newline(..)), _) => None,
-            (Kind::Paragraph, Some(_), _, _) => Some(start),
-            // Unordered list
-            (
-                Kind::UnorderedList(UnorderedList {
-                    width,
-                    token: UnorderedListToken::Asterisk,
-                    ..
-                }),
-                Some(Token::Asterisk((_, end))),
-                Some(Token::Whitespace((_, _))),
-                _,
-            )
-            | (
-                Kind::UnorderedList(UnorderedList {
-                    width,
-                    token: UnorderedListToken::Dash,
-                    ..
-                }),
-                Some(Token::Dash((_, end))),
-                Some(Token::Whitespace((_, _))),
-                _,
-            )
-            | (
-                Kind::UnorderedList(UnorderedList {
-                    width,
-                    token: UnorderedListToken::Plus,
-                    ..
-                }),
-                Some(Token::Plus((_, end))),
-                Some(Token::Whitespace((_, _))),
-                _,
-            ) if (width <= end - start + 1) => Some(start),
-            (
-                Kind::UnorderedList(UnorderedList {
-                    width,
-                    token: UnorderedListToken::Asterisk,
-                    ..
-                }),
-                Some(Token::Whitespace((_, _))),
-                Some(Token::Asterisk((_, end))),
-                Some(Token::Whitespace((_, _))),
-            )
-            | (
-                Kind::UnorderedList(UnorderedList {
-                    width,
-                    token: UnorderedListToken::Dash,
-                    ..
-                }),
-                Some(Token::Whitespace((_, _))),
-                Some(Token::Dash((_, end))),
-                Some(Token::Whitespace((_, _))),
-            )
-            | (
-                Kind::UnorderedList(UnorderedList {
-                    width,
-                    token: UnorderedListToken::Plus,
-                    ..
-                }),
-                Some(Token::Whitespace((_, _))),
-                Some(Token::Plus((_, end))),
-                Some(Token::Whitespace((_, _))),
-            ) if (width <= end - start + 1) => Some(start),
-            (
-                Kind::UnorderedList(UnorderedList { width, .. }),
-                Some(Token::Whitespace((_, end))),
-                _,
-                _,
-            ) if (width <= end - start + 1) => Some(start),
-            // List item
-            (Kind::ListItem(width), Some(Token::Whitespace((_, end))), _, _)
-                if width < (end - start + 1) =>
-            {
-                // Keep list items open if there is a deeper nested list
-                // contained inside of them.
-                Some(end)
-            }
-            (Kind::Document, Some(_), _, _) => None,
-            _ => None,
+        if let Some(p) = paragraph::probe(self, start, &a, &b, &c) {
+            return Some(p);
         }
+        if let Some(p) = block_quote::probe(self, start, &a, &b, &c) {
+            return Some(p);
+        }
+        if let Some(p) = unordered_list::probe(self, start, &a, &b, &c) {
+            return Some(p);
+        }
+        if let Some(p) = list_item::probe(self, start, &a, &b, &c) {
+            return Some(p);
+        }
+        None
     }
 
     fn open(&self, start: usize, source: &str) -> Option<(Link, usize)> {
         let mut tokenizer = Tokenizer::new(start, source);
         let (a, b, c) = (tokenizer.next(), tokenizer.next(), tokenizer.next());
-        match (self.kind, a, b, c) {
-            // Block quote open
-            (
-                _,
-                Some(Token::Whitespace((_, _))),
-                Some(Token::RightCaret((start, _))),
-                Some(Token::Whitespace((_, end))),
-            ) => Some((Node::new(Kind::BlockQuote, start), end)),
-            (_, Some(Token::Whitespace((_, _))), Some(Token::RightCaret((start, end))), _) => {
-                Some((Node::new(Kind::BlockQuote, start), end))
-            }
-            (_, Some(Token::RightCaret((start, _))), Some(Token::Whitespace((_, end))), _) => {
-                Some((Node::new(Kind::BlockQuote, start), end))
-            }
-            (_, Some(Token::RightCaret((start, end))), _, _) => {
-                Some((Node::new(Kind::BlockQuote, start), end))
-            }
-            // Heading open
-            (_, Some(Token::Hash((start, end))), Some(Token::Whitespace((_, _))), _)
-                if (end - start) <= 6 =>
-            {
-                Some((Node::new(Kind::Heading(end - start), start), end))
-            }
-            // Unordered list open
-            (k, Some(Token::Asterisk((start, _))), Some(Token::Whitespace((_, end))), _)
-            | (
-                k,
-                Some(Token::Whitespace((start, _))),
-                Some(Token::Asterisk((_, _))),
-                Some(Token::Whitespace((_, end))),
-            ) if match k {
-                Kind::UnorderedList(..) => false,
-                _ => true,
-            } =>
-            {
-                Some((
-                    Node::new(
-                        UnorderedList::new(UnorderedListToken::Asterisk, end - start),
-                        start,
-                    ),
-                    end,
-                ))
-            }
-            (k, Some(Token::Dash((start, _))), Some(Token::Whitespace((_, end))), _)
-            | (
-                k,
-                Some(Token::Whitespace((start, _))),
-                Some(Token::Dash((_, _))),
-                Some(Token::Whitespace((_, end))),
-            ) if match k {
-                Kind::UnorderedList(..) => false,
-                _ => true,
-            } =>
-            {
-                Some((
-                    Node::new(
-                        UnorderedList::new(UnorderedListToken::Dash, end - start),
-                        start,
-                    ),
-                    end,
-                ))
-            }
-            (k, Some(Token::Plus((start, _))), Some(Token::Whitespace((_, end))), _)
-            | (
-                k,
-                Some(Token::Whitespace((start, _))),
-                Some(Token::Plus((_, _))),
-                Some(Token::Whitespace((_, end))),
-            ) if match k {
-                Kind::UnorderedList(..) => false,
-                _ => true,
-            } =>
-            {
-                Some((
-                    Node::new(
-                        UnorderedList::new(UnorderedListToken::Plus, end - start),
-                        start,
-                    ),
-                    end,
-                ))
-            }
-            // List item open
-            (k, Some(Token::Asterisk((start, _))), Some(Token::Whitespace((_, end))), _)
-                if match k {
-                    Kind::UnorderedList(UnorderedList {
-                        token: UnorderedListToken::Asterisk,
-                        width,
-                        ..
-                    }) if width == (end - start) => true,
-                    _ => false,
-                } =>
-            {
-                Some((Node::new(Kind::ListItem(end - start), start), end))
-            }
-            (
-                k,
-                Some(Token::Whitespace((start, _))),
-                Some(Token::Asterisk((_, _))),
-                Some(Token::Whitespace((_, end))),
-            ) if match k {
-                Kind::UnorderedList(UnorderedList {
-                    token: UnorderedListToken::Asterisk,
-                    width,
-                    ..
-                }) if width == (end - start) => true,
-                _ => false,
-            } =>
-            {
-                Some((Node::new(Kind::ListItem(end - start), start), end))
-            }
-            _ => None,
+
+        if let Some((node, p)) = block_quote::open(self, &a, &b, &c) {
+            return Some((node, p));
         }
+        if let Some((node, p)) = heading::open(self, &a, &b, &c) {
+            return Some((node, p));
+        }
+        if let Some((node, p)) = unordered_list::open(self, &a, &b, &c) {
+            return Some((node, p));
+        }
+        if let Some((node, p)) = list_item::open(self, &a, &b, &c) {
+            return Some((node, p));
+        }
+
+        None
     }
 
     fn consume(&mut self, start: usize, source: &str) -> Option<usize> {
         match self.kind {
             Kind::Document => container::consume(self, start, source),
-            Kind::BlockQuote => container::consume(self, start, source),
-            Kind::UnorderedList(..) => list::consume(self, start, source),
+            Kind::BlockQuote => block_quote::consume(self, start, source),
+            Kind::UnorderedList(..) => unordered_list::consume(self, start, source),
             Kind::ListItem(..) => list_item::consume(self, start, source),
-            Kind::Paragraph => leaf::consume(self, start, source),
-            Kind::Heading(..) => {
-                if let Some(p) = leaf::consume(self, start, source) {
-                    // Headings cannot be continued onto the next line
-                    // so we close it immediately.
-                    self.end = Some(p);
-                    Some(p)
-                } else {
-                    self.end = Some(start);
-                    None
-                }
-            }
+            Kind::Paragraph => paragraph::consume(self, start, source),
+            Kind::Heading(..) => heading::consume(self, start, source),
             // Inline nodes cannot be consumed
             _ => None,
         }
@@ -452,191 +281,6 @@ pub fn parse(source: &str) -> Link {
     }
 
     doc
-}
-
-mod container {
-    use super::*;
-
-    pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
-        if start >= source.len() {
-            return None;
-        }
-
-        // If we consume a non-leaf block that has no open child,
-        // we need to push a child to consume.
-        if match node.children.last() {
-            None => true,
-            Some(node) if node.borrow().end.is_some() => true,
-            _ => false,
-        } {
-            node.children.push(Node::new(Kind::Paragraph, start));
-        }
-
-        if let Some(open) = node.children.last() {
-            if let Some(p) = {
-                let mut borrow = open.borrow_mut();
-                borrow.consume(start, source)
-            } {
-                return Some(p);
-            } else {
-                // We did not consume anything, so that
-                // means we can close this child.
-                open.borrow_mut().end = Some(start);
-                return empty::consume(node, start, source);
-            }
-        }
-
-        None
-    }
-}
-
-mod list {
-    use super::*;
-
-    pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
-        if match node.children.last() {
-            None => true,
-            Some(node) if node.borrow().end.is_some() => true,
-            _ => false,
-        } {
-            if let Kind::UnorderedList(UnorderedList { width, .. }) = node.kind {
-                node.children.push(Node::new(Kind::ListItem(width), start));
-            }
-        }
-
-        let result = container::consume(node, start, source);
-
-        match node.children.last() {
-            Some(child) if child.borrow().end.is_some() => {
-                // If the last list item closed itself, that means we can't
-                // continue the list because it ends in empty lines which
-                // are not continued with the proper indentation.
-                node.end = child.borrow().end.clone();
-                return node.end;
-            }
-            _ => return result,
-        }
-    }
-}
-
-mod list_item {
-    use super::*;
-
-    pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
-        if let Some(p) = container::consume(node, start, source) {
-            let mut tokenizer = Tokenizer::new(p, source);
-            // We need to check the case where the list contains empty lines
-            // and close the list item if the following lines are not
-            // indented properly. This is because open() does not create
-            // paragraphs, so any un-indented lines might be treated as
-            // a continuation even after an empty line.
-            match (node.kind, node.children.last(), tokenizer.next()) {
-                (Kind::ListItem(width), Some(child), Some(Token::Whitespace((_, end))))
-                    if child.borrow().kind == Kind::Empty && width < (end - start + 1) =>
-                {
-                    // This list item ends with empty lines, but is continued by
-                    // a block of text at the appropriate indentation level.
-                    return Some(p);
-                }
-                (Kind::ListItem(..), Some(child), _) if child.borrow().kind == Kind::Empty => {
-                    // This list item cannot be continued because the next
-                    // line is not indented the same amount.
-                    node.end = Some(p);
-                    return node.end;
-                }
-                _ => return Some(p),
-            }
-        }
-        None
-    }
-}
-
-mod leaf {
-    use super::*;
-
-    pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
-        // For leaf blocks we consume tokens until the next new line
-        let tokenizer = Tokenizer::new(start, source);
-        if node.end == None {
-            let mut p = start;
-            let mut empty = true;
-            let tokens = tokenizer
-                .into_iter()
-                .take_while(|t| match t {
-                    Token::Newline((_, end)) => {
-                        p = *end;
-                        false
-                    }
-                    Token::RightCaret((_, end))
-                    | Token::Hash((_, end))
-                    | Token::Dash((_, end))
-                    | Token::Plus((_, end))
-                    | Token::Number((_, end))
-                    | Token::Period((_, end))
-                    | Token::CloseParen((_, end))
-                    | Token::Asterisk((_, end))
-                    | Token::Plaintext((_, end))
-                    | Token::Whitespace((_, end)) => {
-                        p = *end;
-                        empty = false;
-                        true
-                    }
-                })
-                .map(|t| t.into());
-
-            node.children.extend(tokens);
-
-            if !empty {
-                return Some(p);
-            }
-        }
-
-        None
-    }
-}
-
-mod empty {
-    use super::*;
-
-    pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
-        let tokenizer = Tokenizer::new(start, source);
-        let mut p = start;
-
-        // Empty tokens are easily confused with paragraphs. In order to reduce
-        // the complexity of parsing empty lines in the normal probe-open-consume
-        // cycle, we break out and consume entire chunks of empty lines
-        // before returning to the main loop.
-        let mut consumed = false;
-        let empty = Node::new(Kind::Empty, start);
-        for token in tokenizer {
-            match token {
-                Token::Whitespace((start, _)) => {
-                    p = start;
-                }
-                Token::Newline((_, end)) => {
-                    let empty_line = Node::new(Kind::EmptyLine, p);
-                    empty_line.borrow_mut().end = Some(end);
-                    empty.borrow_mut().children.push(empty_line);
-                    p = end;
-                    consumed = true;
-                }
-                _ => break,
-            }
-        }
-
-        if consumed {
-            let mut borrow = empty.borrow_mut();
-            borrow.end = Some(p);
-            if let Some(open) = borrow.children.last_mut() {
-                open.borrow_mut().end = Some(p);
-            }
-            node.children.push(Rc::clone(&empty));
-
-            Some(p)
-        } else {
-            None
-        }
-    }
 }
 
 #[cfg(test)]
