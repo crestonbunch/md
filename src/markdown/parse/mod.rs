@@ -235,7 +235,6 @@ impl Node {
 
     pub fn consume_all(node: Link, start: usize, source: &str) -> (Link, usize) {
         let mut p = start;
-        let mut node = node;
 
         if let Some(new_p) = {
             let mut borrow = node.borrow_mut();
