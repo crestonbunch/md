@@ -1,5 +1,7 @@
 #![feature(test)]
 
+use std::rc::Rc;
+
 mod markdown;
 mod utils;
 
@@ -27,7 +29,8 @@ impl Compiler {
         Compiler {}
     }
 
-    pub fn compile(&self, source: &str) -> String {
-        markdown::parse(source)
+    pub fn compile(&self, source: &str) -> JsValue {
+        let doc = markdown::parse(source);
+        markdown::js::render(source, Rc::try_unwrap(doc).unwrap().into_inner())
     }
 }

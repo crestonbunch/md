@@ -2,6 +2,13 @@ use super::*;
 
 pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
     if start >= source.len() {
+        // When we get to the end of the document, we need to close
+        // the last child because there is nothing left to parse.
+        if let Some(open) = node.children.last() {
+            let mut borrow = open.borrow_mut();
+            borrow.consume(start, source);
+            borrow.end = Some(start);
+        }
         return None;
     }
 

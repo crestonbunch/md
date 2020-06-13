@@ -17,9 +17,8 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
                 | Token::Hash((_, end))
                 | Token::Dash((_, end))
                 | Token::Plus((_, end))
-                | Token::Number((_, end))
-                | Token::Period((_, end))
-                | Token::CloseParen((_, end))
+                | Token::NumDot((_, end))
+                | Token::NumParen((_, end))
                 | Token::Asterisk((_, end))
                 | Token::Plaintext((_, end))
                 | Token::Whitespace((_, end)) => {

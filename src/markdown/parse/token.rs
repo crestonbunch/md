@@ -15,9 +15,8 @@ pub enum Token {
     Dash(Slice),
     Asterisk(Slice),
     Plus(Slice),
-    Number(Slice),
-    Period(Slice),
-    CloseParen(Slice),
+    NumDot(Slice),
+    NumParen(Slice),
     Plaintext(Slice),
     Whitespace(Slice),
     Newline(Slice),
@@ -31,9 +30,8 @@ impl Into<Rc<RefCell<Node>>> for Token {
             Token::Dash((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
             Token::Asterisk((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
             Token::Plus((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::Number((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::Period((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::CloseParen((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
+            Token::NumParen((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
+            Token::NumDot((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
             Token::Plaintext((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
             Token::Whitespace((start, end)) => Node::new_inline(Kind::Whitespace, start, end),
             Token::Newline((start, end)) => Node::new_inline(Kind::Whitespace, start, end),
@@ -98,10 +96,15 @@ impl<'a> Iterator for Tokenizer<'a> {
                 (TokenizerState::Number, Some(c)) if NUMBER_CHARS.contains(&c) => {
                     (TokenizerState::Number, p + 1)
                 }
-                (TokenizerState::Number, _) => {
-                    result = Some(Token::Number((self.start, p)));
-                    (TokenizerState::Done, p)
+                (TokenizerState::Number, Some(".")) => {
+                    result = Some(Token::NumDot((self.start, p + 1)));
+                    (TokenizerState::Done, p + 1)
                 }
+                (TokenizerState::Number, Some(")")) => {
+                    result = Some(Token::NumParen((self.start, p + 1)));
+                    (TokenizerState::Done, p + 1)
+                }
+                (TokenizerState::Number, _) => (TokenizerState::Plaintext, p + 1),
                 // Hash
                 (TokenizerState::Hash, Some("#")) => (TokenizerState::Hash, p + 1),
                 (TokenizerState::Hash, _) => {
@@ -121,16 +124,6 @@ impl<'a> Iterator for Tokenizer<'a> {
                 // Plus
                 (TokenizerState::Unset, Some("+")) => {
                     result = Some(Token::Plus((self.start, p + 1)));
-                    (TokenizerState::Done, p + 1)
-                }
-                // Period
-                (TokenizerState::Unset, Some(".")) => {
-                    result = Some(Token::Period((self.start, p + 1)));
-                    (TokenizerState::Done, p + 1)
-                }
-                // CloseParen
-                (TokenizerState::Unset, Some(")")) => {
-                    result = Some(Token::CloseParen((self.start, p + 1)));
                     (TokenizerState::Done, p + 1)
                 }
                 // Unset
@@ -209,13 +202,11 @@ mod test {
         assert_eq!(
             result,
             vec![
-                Token::Number((0, 1)),
-                Token::Period((1, 2)),
+                Token::NumDot((0, 2)),
                 Token::Whitespace((2, 3)),
                 Token::Plaintext((3, 7)),
                 Token::Newline((7, 8)),
-                Token::Number((8, 10)),
-                Token::Period((10, 11)),
+                Token::NumDot((8, 11)),
                 Token::Whitespace((11, 12)),
                 Token::Plaintext((12, 16)),
             ]

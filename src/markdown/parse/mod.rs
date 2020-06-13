@@ -6,6 +6,7 @@ mod empty;
 mod heading;
 mod leaf;
 mod list_item;
+mod ordered_list;
 mod paragraph;
 mod token;
 mod unordered_list;
@@ -14,16 +15,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use token::{Token, Tokenizer};
-
-// mod block_quote;
-// mod document;
-// mod ordered_list;
-// mod paragraph;
-// mod unordered_list;
-
-// use block_quote::BlockQuoteProbe;
-// use document::DocumentProbe;
-// use paragraph::ParagraphProbe;
 
 const DEFAULT_CAPACITY: usize = 32;
 
@@ -38,8 +29,8 @@ pub enum UnorderedListToken {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum OrderedListToken {
-    CloseParen,
-    Period,
+    Paren,
+    Dot,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -65,6 +56,17 @@ pub struct OrderedList {
     width: usize,
     tight: bool,
     start: usize,
+}
+
+impl OrderedList {
+    fn new(token: OrderedListToken, width: usize) -> Kind {
+        Kind::OrderedList(OrderedList {
+            token,
+            width,
+            tight: false,
+            start: 1, // TODO
+        })
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -135,6 +137,9 @@ impl Node {
         if let Some(p) = unordered_list::probe(self, start, &a, &b, &c) {
             return Some(p);
         }
+        if let Some(p) = ordered_list::probe(self, start, &a, &b, &c) {
+            return Some(p);
+        }
         if let Some(p) = list_item::probe(self, start, &a, &b, &c) {
             return Some(p);
         }
@@ -154,6 +159,9 @@ impl Node {
         if let Some((node, p)) = unordered_list::open(self, &a, &b, &c) {
             return Some((node, p));
         }
+        if let Some((node, p)) = ordered_list::open(self, &a, &b, &c) {
+            return Some((node, p));
+        }
         if let Some((node, p)) = list_item::open(self, &a, &b, &c) {
             return Some((node, p));
         }
@@ -166,6 +174,7 @@ impl Node {
             Kind::Document => container::consume(self, start, source),
             Kind::BlockQuote => block_quote::consume(self, start, source),
             Kind::UnorderedList(..) => unordered_list::consume(self, start, source),
+            Kind::OrderedList(..) => ordered_list::consume(self, start, source),
             Kind::ListItem(..) => list_item::consume(self, start, source),
             Kind::Paragraph => paragraph::consume(self, start, source),
             Kind::Heading(..) => heading::consume(self, start, source),
@@ -328,6 +337,12 @@ mod tests {
         // let result = parse("* List item\n\n   * Second list item");
         // let result = parse("* List item\n  * Nested list\n* Third list item");
         let result = parse("* One list\n- Two list\n+ Three list");
+        dbg!(&result);
+    }
+
+    #[test]
+    fn test_ordered_lists() {
+        let result = parse("1. List item\n1. Second list item");
         dbg!(&result);
     }
 
