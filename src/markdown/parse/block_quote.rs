@@ -8,7 +8,7 @@ pub fn probe(
     c: &Option<Token>,
 ) -> Option<usize> {
     match (parent.kind, a, b, c) {
-        (Kind::BlockQuote, Some(Token::RightCaret((_, end))), _, _) => Some(*end),
+        (Kind::BlockQuote, Some(Token::RightCaret((_, end))), ..) => Some(*end),
         _ => None,
     }
 }
@@ -20,18 +20,10 @@ pub fn open(
     c: &Option<Token>,
 ) -> Option<(Link, usize)> {
     match (a, b, c) {
-        (
-            Some(Token::Whitespace((_, _))),
-            Some(Token::RightCaret((start, _))),
-            Some(Token::Whitespace((_, end))),
-        ) => Some((Node::new(Kind::BlockQuote, *start), *end)),
         (Some(Token::Whitespace((_, _))), Some(Token::RightCaret((start, end))), _) => {
             Some((Node::new(Kind::BlockQuote, *start), *end))
         }
-        (Some(Token::RightCaret((start, _))), Some(Token::Whitespace((_, end))), _) => {
-            Some((Node::new(Kind::BlockQuote, *start), *end))
-        }
-        (Some(Token::RightCaret((start, end))), _, _) => {
+        (Some(Token::RightCaret((start, end))), ..) => {
             Some((Node::new(Kind::BlockQuote, *start), *end))
         }
         _ => None,

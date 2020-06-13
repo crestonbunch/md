@@ -7,8 +7,10 @@ pub fn open(
     c: &Option<Token>,
 ) -> Option<(Link, usize)> {
     match (a, b, c) {
-        (Some(Token::Hash((start, end))), Some(Token::Whitespace(..)), _) if (end - start) <= 6 => {
-            Some((Node::new(Kind::Heading(end - start), *start), *end))
+        (Some(Token::Hash((start, x))), Some(Token::Whitespace((_, end))), _)
+            if (x - start) <= 6 =>
+        {
+            Some((Node::new(Kind::Heading(x - start), *start), *end))
         }
         _ => None,
     }

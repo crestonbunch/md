@@ -210,7 +210,7 @@ impl Node {
             }
             node = Rc::clone(&open);
         }
-        (node, start)
+        (node, p)
     }
 
     pub fn open_all(node: Link, start: usize, source: &str) -> (Link, usize) {
@@ -266,6 +266,7 @@ pub fn parse(source: &str) -> Link {
         // First we iterate through the open blocks, matching each block
         // with a token in the source. Any remaining unmatched tokens will either
         // be continued or closed in the next step.
+        let old_p = p;
         let (new_node, new_p) = Node::probe_all(node, p, source);
         node = new_node;
         p = new_p;
@@ -276,7 +277,7 @@ pub fn parse(source: &str) -> Link {
         } {
             // We found a new block opener, so let's close any open blocks
             // before we open new ones.
-            node.borrow().close_child(p);
+            node.borrow().close_child(old_p);
 
             let (_, new_p) = Node::open_all(Rc::clone(&node), p, source);
             p = new_p;
@@ -311,14 +312,17 @@ mod tests {
     }
 
     #[test]
-    fn test_blockquote() {
-        let result = parse("> Hello,\nWorld!");
+    fn test_block_quote() {
+        // let result = parse("> Hello,\nWorld!");
+        // let result = parse("> Hello,\n> World!");
+        let result = parse("> * Hello,\n> * World!");
         dbg!(&result);
     }
 
     #[test]
     fn test_heading() {
-        let result = parse("# Hello\nWorld!");
+        // let result = parse("# Hello\nWorld!");
+        let result = parse("abc\n# Hello\nWorld!");
         dbg!(&result);
     }
 

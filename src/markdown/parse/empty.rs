@@ -37,4 +37,5 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
         Some(p)
     } else {
         None
-    }}
+    }
+}

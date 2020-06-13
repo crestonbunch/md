@@ -104,7 +104,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                     result = Some(Token::NumParen((self.start, p + 1)));
                     (TokenizerState::Done, p + 1)
                 }
-                (TokenizerState::Number, _) => (TokenizerState::Plaintext, p + 1),
+                (TokenizerState::Number, _) => (TokenizerState::Plaintext, p),
                 // Hash
                 (TokenizerState::Hash, Some("#")) => (TokenizerState::Hash, p + 1),
                 (TokenizerState::Hash, _) => {
@@ -195,7 +195,7 @@ mod test {
     }
 
     #[test]
-    fn test_numbers() {
+    fn test_ol() {
         let tokenizer = Tokenizer::new(0, "1. Item\n12. Item");
         let result = tokenizer.into_iter().collect::<Vec<_>>();
 
@@ -209,6 +209,23 @@ mod test {
                 Token::NumDot((8, 11)),
                 Token::Whitespace((11, 12)),
                 Token::Plaintext((12, 16)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_numbers() {
+        let tokenizer = Tokenizer::new(0, "Test 123 Test");
+        let result = tokenizer.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(
+            result,
+            vec![
+                Token::Plaintext((0, 4)),
+                Token::Whitespace((4, 5)),
+                Token::Plaintext((5, 8)),
+                Token::Whitespace((8, 9)),
+                Token::Plaintext((9, 13)),
             ]
         );
     }

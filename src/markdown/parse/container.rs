@@ -32,7 +32,8 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
             // We did not consume anything, so that
             // means we can close this child.
             open.borrow_mut().end = Some(start);
-            return empty::consume(node, start, source);
+            let r = empty::consume(node, start, source);
+            return r;
         }
     }
     None
