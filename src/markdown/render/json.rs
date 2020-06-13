@@ -31,7 +31,7 @@ pub enum K {
 #[derive(Serialize)]
 pub struct N {
     pub kind: K,
-    pub slice: (usize, usize),
+    pub span: (usize, usize),
     pub children: Option<Vec<N>>,
     pub text: Option<String>,
 }
@@ -41,62 +41,62 @@ impl N {
         match node.kind {
             Kind::Document => N {
                 kind: K::Document,
-                slice: (node.start, node.end.unwrap()),
+                span: (node.start, node.end.unwrap()),
                 children: render_children(source, node),
                 text: None,
             },
             Kind::BlockQuote => N {
                 kind: K::BlockQuote,
-                slice: (node.start, node.end.unwrap()),
+                span: (node.start, node.end.unwrap()),
                 children: render_children(source, node),
                 text: None,
             },
             Kind::Empty => N {
                 kind: K::Empty,
-                slice: (node.start, node.end.unwrap()),
+                span: (node.start, node.end.unwrap()),
                 children: render_children(source, node),
                 text: None,
             },
             Kind::UnorderedList(..) => N {
                 kind: K::UnorderedList,
-                slice: (node.start, node.end.unwrap()),
+                span: (node.start, node.end.unwrap()),
                 children: render_children(source, node),
                 text: None,
             },
             Kind::OrderedList(..) => N {
                 kind: K::OrderedList,
-                slice: (node.start, node.end.unwrap()),
+                span: (node.start, node.end.unwrap()),
                 children: render_children(source, node),
                 text: None,
             },
             Kind::ListItem(..) => N {
                 kind: K::ListItem,
-                slice: (node.start, node.end.unwrap()),
+                span: (node.start, node.end.unwrap()),
                 children: render_children(source, node),
                 text: None,
             },
             Kind::Heading(size) => render_heading(source, node, size),
             Kind::Paragraph => N {
                 kind: K::Paragraph,
-                slice: (node.start, node.end.unwrap()),
+                span: (node.start, node.end.unwrap()),
                 children: render_children(source, node),
                 text: None,
             },
             Kind::EmptyLine => N {
                 kind: K::EmptyLine,
-                slice: (node.start, node.end.unwrap()),
+                span: (node.start, node.end.unwrap()),
                 children: None,
                 text: Some((&source[node.start..node.end.unwrap()]).into()),
             },
             Kind::Plaintext => N {
                 kind: K::Plaintext,
-                slice: (node.start, node.end.unwrap()),
+                span: (node.start, node.end.unwrap()),
                 children: None,
                 text: Some((&source[node.start..node.end.unwrap()]).into()),
             },
             Kind::Whitespace => N {
                 kind: K::Whitespace,
-                slice: (node.start, node.end.unwrap()),
+                span: (node.start, node.end.unwrap()),
                 children: None,
                 text: Some((&source[node.start..node.end.unwrap()]).into()),
             },
@@ -124,7 +124,7 @@ fn render_heading(source: &str, node: Node, size: usize) -> N {
     };
     N {
         kind,
-        slice: (node.start, node.end.unwrap()),
+        span: (node.start, node.end.unwrap()),
         children: render_children(source, node),
         text: None,
     }
