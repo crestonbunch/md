@@ -130,7 +130,7 @@ fn render_heading(source: &str, node: Node, size: usize) -> N {
     }
 }
 
-pub fn render(source: &str, node: Node) -> JsValue {
+pub fn render(source: &str, node: Node) -> String {
     let n = N::new(source, node);
-    serde_wasm_bindgen::to_value(&n).unwrap()
+    serde_json::to_string(&n).unwrap()
 }

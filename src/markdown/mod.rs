@@ -4,4 +4,4 @@ mod render;
 pub use parse::parse;
 pub use parse::{Kind, Node, OrderedList, UnorderedList};
 
-pub use render::js;
+pub use render::json;
