@@ -86,17 +86,32 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
         // indented properly. This is because open() does not create
         // paragraphs, so any un-indented lines might be treated as
         // a continuation even after an empty line.
-        match (node.kind, node.children.last(), tokenizer.next()) {
+        let n = tokenizer.next();
+        let c = node.children.last().map(|c| c.borrow());
+        // dbg!(node.kind, start, p, &c.map(|c| c.kind), &n);
+        match (node.kind, c, n) {
             (Kind::ListItem(width), Some(child), Some(Token::Whitespace((_, end))))
-                if child.borrow().kind == Kind::Empty && width < (end - start + 1) =>
+                if child.kind == Kind::Empty && width < (end - start + 1) =>
             {
                 // This list item ends with empty lines, but is continued by
                 // a block of text at the appropriate indentation level.
                 return Some(p);
             }
-            (Kind::ListItem(..), Some(child), _) if child.borrow().kind == Kind::Empty => {
+            (Kind::ListItem(..), Some(child), _) if child.kind == Kind::Empty => {
                 // This list item cannot be continued because the next
                 // line is not indented the same amount.
+                node.end = Some(p);
+                return node.end;
+            }
+            (Kind::ListItem(..), Some(child), _)
+                if match child.kind {
+                    Kind::UnorderedList(..) => true,
+                    Kind::OrderedList(..) => true,
+                    _ => false,
+                } && child.end.is_some() =>
+            {
+                // If the last nested list is closed, that means it encountered
+                // an empty line and all parent lists should close as well
                 node.end = Some(p);
                 return node.end;
             }

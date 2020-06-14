@@ -328,7 +328,8 @@ mod tests {
 
     #[test]
     fn test_multiple_paragraphs() {
-        let result = parse("Hello\nWorld!\n \n\nHello\nWorld");
+        // let result = parse("Hello\nWorld!\n \n\nHello\nWorld");
+        let result = parse("\n\nHello\n\nWorld");
         dbg!(&result);
     }
 
@@ -339,7 +340,8 @@ mod tests {
         // let result = parse("* List item\n\nTestTest\n* Second list item");
         // let result = parse("* List item\n\n   * Second list item");
         // let result = parse("* List item\n  * Nested list\n* Third list item");
-        let result = parse("* One list\n- Two list\n+ Three list");
+        // let result = parse("* One list\n- Two list\n+ Three list");
+        let result = parse("> * List\n>   * List\n\nParagraph");
         dbg!(&result);
     }
 
