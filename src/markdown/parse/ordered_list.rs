@@ -46,9 +46,10 @@ pub fn open(
     b: &Option<Token>,
     c: &Option<Token>,
 ) -> Option<(Link, usize)> {
-    if let Kind::OrderedList(..) = parent.kind {
-        // We cannot open another list inside a list
-        return None;
+    match parent.kind {
+        // We cannot open another list inside a list or empty block
+        Kind::OrderedList(..) | Kind::Empty => return None,
+        _ => (),
     }
     match (a, b, c) {
         (Some(Token::NumDot((start, _))), Some(Token::Whitespace((_, end))), _)

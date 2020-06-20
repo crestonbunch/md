@@ -14,11 +14,15 @@ pub fn probe(
 }
 
 pub fn open(
-    _parent: &Node,
+    parent: &Node,
     a: &Option<Token>,
     b: &Option<Token>,
     c: &Option<Token>,
 ) -> Option<(Link, usize)> {
+    match parent.kind {
+        Kind::Empty => return None,
+        _ => (),
+    }
     match (a, b, c) {
         (Some(Token::Whitespace((_, _))), Some(Token::RightCaret((start, end))), _) => {
             Some((Node::new(Kind::BlockQuote, *start), *end))

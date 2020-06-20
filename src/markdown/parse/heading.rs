@@ -1,11 +1,15 @@
 use super::*;
 
 pub fn open(
-    _parent: &Node,
+    parent: &Node,
     a: &Option<Token>,
     b: &Option<Token>,
     c: &Option<Token>,
 ) -> Option<(Link, usize)> {
+    match parent.kind {
+        Kind::Empty => return None,
+        _ => (),
+    }
     match (a, b, c) {
         (Some(Token::Hash((start, x))), Some(Token::Whitespace((_, end))), _)
             if (x - start) <= 6 =>

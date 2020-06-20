@@ -347,7 +347,8 @@ mod tests {
     #[test]
     fn test_heading() {
         // let result = parse("# Hello\nWorld!");
-        let result = parse("abc\n# Hello\nWorld!");
+        // let result = parse("abc\n# Hello\nWorld!");
+        let result = parse("abc\n\n## Hello\nWorld!");
         dbg!(&result);
     }
 
