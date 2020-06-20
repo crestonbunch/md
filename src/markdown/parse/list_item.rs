@@ -14,6 +14,7 @@ pub fn probe(
                 // contained inside of them.
                 Some(*end)
             }
+            (Some(Token::Newline(..)), ..) => Some(start),
             _ => None,
         };
     }
@@ -79,46 +80,7 @@ pub fn open(
 }
 
 pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
-    if let Some(p) = container::consume(node, start, source) {
-        let mut tokenizer = Tokenizer::new(p, source);
-        // We need to check the case where the list contains empty lines
-        // and close the list item if the following lines are not
-        // indented properly. This is because open() does not create
-        // paragraphs, so any un-indented lines might be treated as
-        // a continuation even after an empty line.
-        let n = tokenizer.next();
-        let c = node.children.last().map(|c| c.borrow());
-        // dbg!(node.kind, start, p, &c.map(|c| c.kind), &n);
-        match (node.kind, c, n) {
-            (Kind::ListItem(width), Some(child), Some(Token::Whitespace((_, end))))
-                if child.kind == Kind::Empty && width < (end - start + 1) =>
-            {
-                // This list item ends with empty lines, but is continued by
-                // a block of text at the appropriate indentation level.
-                return Some(p);
-            }
-            (Kind::ListItem(..), Some(child), _) if child.kind == Kind::Empty => {
-                // This list item cannot be continued because the next
-                // line is not indented the same amount.
-                node.end = Some(p);
-                return node.end;
-            }
-            (Kind::ListItem(..), Some(child), _)
-                if match child.kind {
-                    Kind::UnorderedList(..) => true,
-                    Kind::OrderedList(..) => true,
-                    _ => false,
-                } && child.end.is_some() =>
-            {
-                // If the last nested list is closed, that means it encountered
-                // an empty line and all parent lists should close as well
-                node.end = Some(p);
-                return node.end;
-            }
-            _ => return Some(p),
-        }
-    }
-    None
+    container::consume(node, start, source)
 }
 
 fn is_ul_child(list_kind: Kind, list_token: UnorderedListToken, start: usize, end: usize) -> bool {

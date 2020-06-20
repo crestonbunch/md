@@ -1,41 +1,53 @@
 use super::*;
 
-pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
-    let tokenizer = Tokenizer::new(start, source);
-    let mut p = start;
-
-    // Empty tokens are easily confused with paragraphs. In order to reduce
-    // the complexity of parsing empty lines in the normal probe-open-consume
-    // cycle, we break out and consume entire chunks of empty lines
-    // before returning to the main loop.
-    let mut consumed = false;
-    let empty = Node::new(Kind::Empty, start);
-    for token in tokenizer {
-        match token {
-            Token::Whitespace((start, _)) => {
-                p = start;
+pub fn open(
+    parent: &Node,
+    a: &Option<Token>,
+    b: &Option<Token>,
+    c: &Option<Token>,
+) -> Option<(Link, usize)> {
+    if parent.kind != Kind::Empty {
+        match (a, b, c) {
+            (Some(Token::Newline((start, end))), ..) => {
+                let mut node = Node::new(Kind::Empty, *start);
+                Some((node, *end))
             }
-            Token::Newline((_, end)) => {
-                let empty_line = Node::new(Kind::EmptyLine, p);
-                empty_line.borrow_mut().end = Some(end);
-                empty.borrow_mut().children.push(empty_line);
-                p = end;
-                consumed = true;
+            (Some(Token::Whitespace((start, _))), Some(Token::Newline((_, end))), ..) => {
+                let node = Node::new(Kind::Empty, *start);
+                Some((node, *end))
             }
-            _ => break,
+            _ => None,
         }
-    }
-
-    if consumed {
-        let mut borrow = empty.borrow_mut();
-        borrow.end = Some(p);
-        if let Some(open) = borrow.children.last_mut() {
-            open.borrow_mut().end = Some(p);
-        }
-        node.children.push(Rc::clone(&empty));
-
-        Some(p)
     } else {
         None
     }
+}
+
+pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
+    let tokenizer = Tokenizer::new(start, source);
+    if node.end == None {
+        let mut p = start;
+        let mut empty = true;
+        // Consume all empty lines with optional whitespace
+        for token in tokenizer {
+            match token {
+                Token::Whitespace((start, _)) => {
+                    p = start;
+                }
+                Token::Newline((_, end)) => {
+                    let empty_line = Node::new(Kind::EmptyLine, p);
+                    empty_line.borrow_mut().end = Some(end);
+                    node.children.push(empty_line);
+                    p = end;
+                    empty = false;
+                }
+                _ => break,
+            }
+        }
+        node.end = Some(p);
+        if !empty {
+            return node.end;
+        }
+    }
+    None
 }

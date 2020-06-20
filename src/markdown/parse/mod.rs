@@ -147,6 +147,10 @@ impl Node {
     }
 
     fn open(&self, start: usize, source: &str) -> Option<(Link, usize)> {
+        if start >= source.len() {
+            return None;
+        }
+
         let mut tokenizer = Tokenizer::new(start, source);
         let (a, b, c) = (tokenizer.next(), tokenizer.next(), tokenizer.next());
 
@@ -165,11 +169,19 @@ impl Node {
         if let Some((node, p)) = list_item::open(self, &a, &b, &c) {
             return Some((node, p));
         }
+        if let Some((node, p)) = empty::open(self, &a, &b, &c) {
+            return Some((node, p));
+        }
 
         None
     }
 
     fn consume(&mut self, start: usize, source: &str) -> Option<usize> {
+        if start >= source.len() {
+            self.end = Some(start);
+            return Some(start);
+        }
+
         match self.kind {
             Kind::Document => container::consume(self, start, source),
             Kind::BlockQuote => block_quote::consume(self, start, source),
@@ -178,6 +190,7 @@ impl Node {
             Kind::ListItem(..) => list_item::consume(self, start, source),
             Kind::Paragraph => paragraph::consume(self, start, source),
             Kind::Heading(..) => heading::consume(self, start, source),
+            Kind::Empty => empty::consume(self, start, source),
             // Inline nodes cannot be consumed
             _ => None,
         }
@@ -217,7 +230,6 @@ impl Node {
         let mut p = start;
         let mut node = node;
 
-        // Now push all of the new open blocks into the tree
         while let Some((open, new_p)) = {
             let borrow = node.borrow();
             borrow.open(p, source)
@@ -235,19 +247,31 @@ impl Node {
 
     pub fn consume_all(node: Link, start: usize, source: &str) -> (Link, usize) {
         let mut p = start;
-
-        if let Some(new_p) = {
+        let mut node = node;
+        while let Some(new_p) = {
             let mut borrow = node.borrow_mut();
             borrow.consume(p, source)
         } {
+            // When we consume something in the parent node, we descend
+            // to the child node and attempt to consume something in the
+            // child.
             p = new_p;
-        } else {
-            // We did not consume anything at this node, so
-            // it must not be a continuation after all.
-            // Now we close it.
-            node.borrow_mut().end = Some(p);
+            if let Some(child) = {
+                let borrow = node.borrow();
+                borrow.children.last().map(Rc::clone)
+            } {
+                if child.borrow().end.is_none() {
+                    node = child;
+                } else {
+                    // If the child is closed, we cannot consume anything else
+                    // (or else we would end up with closed parents but
+                    // open children)
+                    break;
+                }
+            } else {
+                break;
+            }
         }
-
         (node, p)
     }
 }
@@ -315,7 +339,8 @@ mod tests {
     fn test_block_quote() {
         // let result = parse("> Hello,\nWorld!");
         // let result = parse("> Hello,\n> World!");
-        let result = parse("> * Hello,\n> * World!");
+        // let result = parse("> * Hello,\n> * World!");
+        let result = parse("> Hello\n\nWorld!");
         dbg!(&result);
     }
 
@@ -337,7 +362,7 @@ mod tests {
     fn test_unordered_lists() {
         // let result = parse("* List item\n* Second list item");
         // let result = parse("* List item\n  * Second list item");
-        // let result = parse("* List item\n\nTestTest\n* Second list item");
+        // let result = parse("* List item\n\n* Second list item");
         // let result = parse("* List item\n\n   * Second list item");
         // let result = parse("* List item\n  * Nested list\n* Third list item");
         // let result = parse("* One list\n- Two list\n+ Three list");

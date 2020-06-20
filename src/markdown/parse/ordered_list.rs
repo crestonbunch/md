@@ -86,17 +86,5 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
             node.children.push(Node::new(Kind::ListItem(width), start));
         }
     }
-
-    let result = container::consume(node, start, source);
-
-    match node.children.last() {
-        Some(child) if child.borrow().end.is_some() => {
-            // If the last list item closed itself, that means we can't
-            // continue the list because it ends in empty lines which
-            // are not continued with the proper indentation.
-            node.end = child.borrow().end.clone();
-            return node.end;
-        }
-        _ => return result,
-    }
+    container::consume(node, start, source)
 }

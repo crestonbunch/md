@@ -46,6 +46,7 @@ pub fn probe(
                 Some(Token::Whitespace(..)),
             ) if (width <= end - start + 1) => Some(start),
             (_, Some(Token::Whitespace((_, end))), ..) if (width <= end - start + 1) => Some(start),
+            (_, Some(Token::Newline((_, end))), ..) => Some(start),
             _ => None,
         };
     }
@@ -58,9 +59,10 @@ pub fn open(
     b: &Option<Token>,
     c: &Option<Token>,
 ) -> Option<(Link, usize)> {
-    if let Kind::UnorderedList(..) = parent.kind {
-        // We cannot open another list inside a list
-        return None;
+    match parent.kind {
+        // We cannot open another list inside a list or empty block
+        Kind::UnorderedList(..) | Kind::Empty => return None,
+        _ => (),
     }
     match (a, b, c) {
         (Some(Token::Asterisk((start, _))), Some(Token::Whitespace((_, end))), _)
@@ -113,17 +115,5 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
             node.children.push(Node::new(Kind::ListItem(width), start));
         }
     }
-
-    let result = container::consume(node, start, source);
-
-    match node.children.last() {
-        Some(child) if child.borrow().end.is_some() => {
-            // If the last list item closed itself, that means we can't
-            // continue the list because it ends in empty lines which
-            // are not continued with the proper indentation.
-            node.end = child.borrow().end.clone();
-            return node.end;
-        }
-        _ => return result,
-    }
+    container::consume(node, start, source)
 }

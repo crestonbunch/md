@@ -34,7 +34,7 @@ impl Into<Rc<RefCell<Node>>> for Token {
             Token::NumDot((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
             Token::Plaintext((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
             Token::Whitespace((start, end)) => Node::new_inline(Kind::Whitespace, start, end),
-            Token::Newline((start, end)) => Node::new_inline(Kind::Whitespace, start, end),
+            Token::Newline((start, end)) => Node::new_inline(Kind::EmptyLine, start, end),
         }
     }
 }

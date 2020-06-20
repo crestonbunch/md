@@ -1,4 +1,5 @@
 #![feature(test)]
+#![feature(or_patterns)]
 
 use std::rc::Rc;
 

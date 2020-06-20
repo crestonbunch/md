@@ -1,17 +1,6 @@
 use super::*;
 
 pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
-    if start >= source.len() {
-        // When we get to the end of the document, we need to close
-        // the last child because there is nothing left to parse.
-        if let Some(open) = node.children.last() {
-            let mut borrow = open.borrow_mut();
-            borrow.consume(start, source);
-            borrow.end = Some(start);
-        }
-        return None;
-    }
-
     // If we consume a non-leaf block that has no open child,
     // we need to push a child to consume.
     if match node.children.last() {
@@ -22,19 +11,6 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
         node.children.push(Node::new(Kind::Paragraph, start));
     }
 
-    if let Some(open) = node.children.last() {
-        if let Some(p) = {
-            let mut borrow = open.borrow_mut();
-            borrow.consume(start, source)
-        } {
-            return Some(p);
-        } else {
-            // We did not consume anything, so that
-            // means we can close this child.
-            open.borrow_mut().end = Some(start);
-            let r = empty::consume(node, start, source);
-            return r;
-        }
-    }
-    None
+    // Containers do not consume anything
+    Some(start)
 }
