@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
+pub fn consume(node: &mut Node, start: usize, _source: &str) -> Option<usize> {
     // If we consume a non-leaf block that has no open child,
     // we need to push a child to consume.
     if match node.children.last() {

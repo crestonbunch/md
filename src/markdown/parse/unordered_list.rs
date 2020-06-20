@@ -46,7 +46,7 @@ pub fn probe(
                 Some(Token::Whitespace(..)),
             ) if (width <= end - start + 1) => Some(start),
             (_, Some(Token::Whitespace((_, end))), ..) if (width <= end - start + 1) => Some(start),
-            (_, Some(Token::Newline((_, end))), ..) => Some(start),
+            (_, Some(Token::Newline(..)), ..) => Some(start),
             _ => None,
         };
     }

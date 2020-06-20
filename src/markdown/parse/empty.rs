@@ -9,7 +9,7 @@ pub fn open(
     if parent.kind != Kind::Empty {
         match (a, b, c) {
             (Some(Token::Newline((start, end))), ..) => {
-                let mut node = Node::new(Kind::Empty, *start);
+                let node = Node::new(Kind::Empty, *start);
                 Some((node, *end))
             }
             (Some(Token::Whitespace((start, _))), Some(Token::Newline((_, end))), ..) => {
