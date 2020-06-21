@@ -34,6 +34,7 @@ pub fn probe(
                 Some(Token::Whitespace(..)),
             ) if (width <= end - start + 1) => Some(start),
             (_, Some(Token::Whitespace((_, end))), ..) if (width <= end - start + 1) => Some(start),
+            (_, Some(Token::Newline(..)), ..) => Some(start),
             _ => None,
         };
     }
@@ -58,13 +59,7 @@ pub fn open(
             Some(Token::NumDot(..)),
             Some(Token::Whitespace((_, end))),
         ) => Some((
-            {
-                let ol = Node::new(OrderedList::new(OrderedListToken::Dot, end - start), *start);
-                ol.borrow_mut()
-                    .children
-                    .push(Node::new(Kind::ListItem(end - start), *start));
-                ol
-            },
+            Node::new(OrderedList::new(OrderedListToken::Dot, end - start), *start),
             *end,
         )),
         (Some(Token::NumParen((start, _))), Some(Token::Whitespace((_, end))), _)
@@ -73,22 +68,26 @@ pub fn open(
             Some(Token::NumParen((_, _))),
             Some(Token::Whitespace((_, end))),
         ) => Some((
-            {
-                let ol = Node::new(
-                    OrderedList::new(OrderedListToken::Paren, end - start),
-                    *start,
-                );
-                ol.borrow_mut()
-                    .children
-                    .push(Node::new(Kind::ListItem(end - start), *start));
-                ol
-            },
+            Node::new(
+                OrderedList::new(OrderedListToken::Paren, end - start),
+                *start,
+            ),
             *end,
         )),
         _ => None,
     }
 }
 
-pub fn consume(_node: &mut Node, start: usize, _source: &str) -> Option<usize> {
+pub fn consume(node: &mut Node, start: usize, _source: &str) -> Option<usize> {
+    if match node.children.last() {
+        None => true,
+        Some(node) if node.borrow().end.is_some() => true,
+        _ => false,
+    } {
+        if let Kind::OrderedList(OrderedList { width, .. }) = node.kind {
+            node.children.push(Node::new(Kind::ListItem(width), start));
+        }
+    }
+
     Some(start)
 }

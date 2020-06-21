@@ -146,7 +146,7 @@ impl Node {
         None
     }
 
-    fn open(&self, start: usize, source: &str) -> Option<(Link, usize)> {
+    fn open(&mut self, start: usize, source: &str) -> Option<(Link, usize)> {
         if start >= source.len() {
             return None;
         }
@@ -170,12 +170,6 @@ impl Node {
             return Some((node, p));
         }
         if let Some((node, p)) = empty::open(self, &a, &b, &c) {
-            return Some((node, p));
-        }
-        // There are some special circumstances where we need to manually
-        // open a paragraph, but in most cases a paragraph will be opened
-        // automatically by consuming a container.
-        if let Some((node, p)) = paragraph::open(self, start) {
             return Some((node, p));
         }
 
@@ -237,7 +231,7 @@ impl Node {
         let mut node = node;
 
         while let Some((open, new_p)) = {
-            let borrow = node.borrow();
+            let mut borrow = node.borrow_mut();
             borrow.open(p, source)
         } {
             {
@@ -302,7 +296,7 @@ pub fn parse(source: &str) -> Link {
         p = new_p;
 
         if let Some(_) = {
-            let borrow = node.borrow();
+            let mut borrow = node.borrow_mut();
             borrow.open(p, source)
         } {
             // We found a new block opener, so let's close any open blocks
@@ -372,17 +366,19 @@ mod tests {
         // let result = parse("* List item\n  * Second list item");
         // let result = parse("* List item\n\n* Second list item");
         // let result = parse("* List item\n\n   * Second list item");
-        // let result = parse("* List item\n  * Nested list\n* Third list item");
+        // let result = parse("* List item\n  * Nested list\n\nThird list item");
         // let result = parse("* One list\n- Two list\n+ Three list");
         // let result = parse("> * List\n>   * List\n\nParagraph");
         // let result = parse("* List item\n\n  List item continuation");
-        let result = parse("* List item\n\nNot a list item");
+        // let result = parse("* List item\n\nNot a list item");
+        let result = parse("* \n\n");
         dbg!(&result);
     }
 
     #[test]
     fn test_ordered_lists() {
-        let result = parse("1. List item\n1. Second list item");
+        // let result = parse("1. List item\n1. Second list item");
+        let result = parse("1. List item\n\n1. Second list item");
         dbg!(&result);
     }
 

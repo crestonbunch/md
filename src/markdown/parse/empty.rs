@@ -1,25 +1,44 @@
 use super::*;
 
 pub fn open(
-    parent: &Node,
+    parent: &mut Node,
     a: &Option<Token>,
     b: &Option<Token>,
     c: &Option<Token>,
 ) -> Option<(Link, usize)> {
-    if parent.kind != Kind::Empty {
-        match (a, b, c) {
-            (Some(Token::Newline((start, end))), ..) => {
-                let node = Node::new(Kind::Empty, *start);
-                Some((node, *end))
+    match parent.kind {
+        Kind::Empty | Kind::UnorderedList(..) | Kind::OrderedList(..) => return None,
+        Kind::Document => {
+            // If a list cannot continue after an empty block, then we close the list.
+            let last_child = parent.children.last().map(Rc::clone);
+            if let Some((container, child)) = last_child.and_then(find_last_empty) {
+                // HACK: move the empty node from the list item parent to the
+                // document parent so that empty blocks terminating lists are
+                // at the root (this improves the editor experience, but has
+                // no actual effect on rendering markdown)
+                let start = child.borrow().start;
+                parent.close_child(start);
+
+                let end = child.borrow().end.unwrap();
+                let mut borrow = container.borrow_mut();
+                borrow.children.pop();
+
+                parent.children.push(Rc::clone(&child));
+                return Some((child, end));
             }
-            (Some(Token::Whitespace((start, _))), Some(Token::Newline((_, end))), ..) => {
-                let node = Node::new(Kind::Empty, *start);
-                Some((node, *end))
-            }
-            _ => None,
         }
-    } else {
-        None
+        _ => (),
+    }
+    match (a, b, c) {
+        (Some(Token::Newline((start, end))), ..) => {
+            let node = Node::new(Kind::Empty, *start);
+            Some((node, *end))
+        }
+        (Some(Token::Whitespace((start, _))), Some(Token::Newline((_, end))), ..) => {
+            let node = Node::new(Kind::Empty, *start);
+            Some((node, *end))
+        }
+        _ => None,
     }
 }
 
@@ -47,6 +66,34 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
         node.end = Some(p);
         if !empty {
             return node.end;
+        }
+    }
+    None
+}
+
+fn find_last_empty(node: Link) -> Option<(Link, Link)> {
+    let mut parent = node;
+    while match {
+        let borrow = parent.borrow();
+        borrow.kind
+    } {
+        Kind::ListItem(..) => true,
+        Kind::UnorderedList(..) => true,
+        Kind::OrderedList(..) => true,
+        _ => false,
+    } {
+        let clone = Rc::clone(&parent);
+        let borrow = clone.borrow();
+        let child = borrow.children.last();
+        if let Some(child) = child {
+            let borrow = child.borrow();
+            if let Kind::Empty = borrow.kind {
+                return Some((Rc::clone(&parent), Rc::clone(child)));
+            } else {
+                parent = Rc::clone(child);
+            }
+        } else {
+            return None;
         }
     }
     None
