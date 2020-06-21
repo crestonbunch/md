@@ -64,17 +64,23 @@ pub fn open(
         Kind::UnorderedList(..) | Kind::Empty => return None,
         _ => (),
     }
-    match (a, b, c) {
+    let result = match (a, b, c) {
         (Some(Token::Asterisk((start, _))), Some(Token::Whitespace((_, end))), _)
         | (
             Some(Token::Whitespace((start, _))),
             Some(Token::Asterisk((_, _))),
             Some(Token::Whitespace((_, end))),
         ) => Some((
-            Node::new(
-                UnorderedList::new(UnorderedListToken::Asterisk, end - start),
-                *start,
-            ),
+            {
+                let ul = Node::new(
+                    UnorderedList::new(UnorderedListToken::Asterisk, end - start),
+                    *start,
+                );
+                ul.borrow_mut()
+                    .children
+                    .push(Node::new(Kind::ListItem(end - start), *start));
+                ul
+            },
             *end,
         )),
         (Some(Token::Dash((start, _))), Some(Token::Whitespace((_, end))), _)
@@ -83,10 +89,16 @@ pub fn open(
             Some(Token::Dash((_, _))),
             Some(Token::Whitespace((_, end))),
         ) => Some((
-            Node::new(
-                UnorderedList::new(UnorderedListToken::Dash, end - start),
-                *start,
-            ),
+            {
+                let ul = Node::new(
+                    UnorderedList::new(UnorderedListToken::Dash, end - start),
+                    *start,
+                );
+                ul.borrow_mut()
+                    .children
+                    .push(Node::new(Kind::ListItem(end - start), *start));
+                ul
+            },
             *end,
         )),
         (Some(Token::Plus((start, _))), Some(Token::Whitespace((_, end))), _)
@@ -95,25 +107,24 @@ pub fn open(
             Some(Token::Plus((_, _))),
             Some(Token::Whitespace((_, end))),
         ) => Some((
-            Node::new(
-                UnorderedList::new(UnorderedListToken::Plus, end - start),
-                *start,
-            ),
+            {
+                let ul = Node::new(
+                    UnorderedList::new(UnorderedListToken::Plus, end - start),
+                    *start,
+                );
+                ul.borrow_mut()
+                    .children
+                    .push(Node::new(Kind::ListItem(end - start), *start));
+                ul
+            },
             *end,
         )),
         _ => None,
-    }
+    };
+
+    result
 }
 
-pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
-    if match node.children.last() {
-        None => true,
-        Some(node) if node.borrow().end.is_some() => true,
-        _ => false,
-    } {
-        if let Kind::UnorderedList(UnorderedList { width, .. }) = node.kind {
-            node.children.push(Node::new(Kind::ListItem(width), start));
-        }
-    }
-    container::consume(node, start, source)
+pub fn consume(_node: &mut Node, start: usize, _source: &str) -> Option<usize> {
+    Some(start)
 }

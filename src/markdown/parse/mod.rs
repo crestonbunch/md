@@ -172,6 +172,12 @@ impl Node {
         if let Some((node, p)) = empty::open(self, &a, &b, &c) {
             return Some((node, p));
         }
+        // There are some special circumstances where we need to manually
+        // open a paragraph, but in most cases a paragraph will be opened
+        // automatically by consuming a container.
+        if let Some((node, p)) = paragraph::open(self, start) {
+            return Some((node, p));
+        }
 
         None
     }
@@ -348,7 +354,8 @@ mod tests {
     fn test_heading() {
         // let result = parse("# Hello\nWorld!");
         // let result = parse("abc\n# Hello\nWorld!");
-        let result = parse("abc\n\n## Hello\nWorld!");
+        // let result = parse("abc\n\n## Hello\nWorld!");
+        let result = parse("# \n## Heading\n");
         dbg!(&result);
     }
 
@@ -367,7 +374,9 @@ mod tests {
         // let result = parse("* List item\n\n   * Second list item");
         // let result = parse("* List item\n  * Nested list\n* Third list item");
         // let result = parse("* One list\n- Two list\n+ Three list");
-        let result = parse("> * List\n>   * List\n\nParagraph");
+        // let result = parse("> * List\n>   * List\n\nParagraph");
+        // let result = parse("* List item\n\n  List item continuation");
+        let result = parse("* List item\n\nNot a list item");
         dbg!(&result);
     }
 

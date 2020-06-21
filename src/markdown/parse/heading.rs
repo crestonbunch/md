@@ -11,6 +11,8 @@ pub fn open(
         _ => (),
     }
     match (a, b, c) {
+        // Headers are not rendered without some content
+        (Some(Token::Hash(..)), Some(Token::Whitespace(..)), Some(Token::Newline(..))) => None,
         (Some(Token::Hash((start, x))), Some(Token::Whitespace((_, end))), _)
             if (x - start) <= 6 =>
         {
@@ -28,6 +30,6 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
         Some(p)
     } else {
         node.end = Some(start);
-        None
+        Some(start)
     }
 }
