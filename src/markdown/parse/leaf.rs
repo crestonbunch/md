@@ -5,7 +5,6 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
     let tokenizer = Tokenizer::new(start, source);
     if node.end == None {
         let mut p = start;
-        let mut empty = true;
         let tokens = tokenizer
             .into_iter()
             .take_while(|t| match t {
@@ -23,17 +22,13 @@ pub fn consume(node: &mut Node, start: usize, source: &str) -> Option<usize> {
                 | Token::Plaintext((_, end))
                 | Token::Whitespace((_, end)) => {
                     p = *end;
-                    empty = false;
                     true
                 }
             })
             .map(|t| t.into());
 
         node.children.extend(tokens);
-
-        if !empty {
-            return Some(p);
-        }
+        return Some(p);
     }
     None
 }
