@@ -75,7 +75,7 @@ pub fn open(
                 UnorderedList::new(UnorderedListToken::Asterisk, end - start),
                 *start,
             ),
-            *end,
+            *start,
         )),
         (Some(Token::Dash((start, _))), Some(Token::Whitespace((_, end))), _)
         | (
@@ -87,7 +87,7 @@ pub fn open(
                 UnorderedList::new(UnorderedListToken::Dash, end - start),
                 *start,
             ),
-            *end,
+            *start,
         )),
         (Some(Token::Plus((start, _))), Some(Token::Whitespace((_, end))), _)
         | (
@@ -99,7 +99,7 @@ pub fn open(
                 UnorderedList::new(UnorderedListToken::Plus, end - start),
                 *start,
             ),
-            *end,
+            *start,
         )),
         _ => None,
     };

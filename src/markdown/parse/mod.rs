@@ -378,7 +378,8 @@ mod tests {
     #[test]
     fn test_ordered_lists() {
         // let result = parse("1. List item\n1. Second list item");
-        let result = parse("1. List item\n\n1. Second list item");
+        // let result = parse("1. List item\n\n1. Second list item");
+        let result = parse("1. \n\n1. \n\n");
         dbg!(&result);
     }
 

@@ -60,7 +60,7 @@ pub fn open(
             Some(Token::Whitespace((_, end))),
         ) => Some((
             Node::new(OrderedList::new(OrderedListToken::Dot, end - start), *start),
-            *end,
+            *start,
         )),
         (Some(Token::NumParen((start, _))), Some(Token::Whitespace((_, end))), _)
         | (
@@ -72,7 +72,7 @@ pub fn open(
                 OrderedList::new(OrderedListToken::Paren, end - start),
                 *start,
             ),
-            *end,
+            *start,
         )),
         _ => None,
     }
