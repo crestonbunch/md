@@ -120,8 +120,10 @@ impl Node {
     fn close_child(&self, p: usize) {
         if let Some(open) = self.children.last() {
             let mut open = open.borrow_mut();
-            open.end = Some(p);
-            open.close_child(p);
+            if open.end.is_none() {
+                open.end = Some(p);
+                open.close_child(p);
+            }
         }
     }
 
