@@ -342,7 +342,9 @@ mod tests {
         // let result = parse("> Hello,\nWorld!");
         // let result = parse("> Hello,\n> World!");
         // let result = parse("> * Hello,\n> * World!");
-        let result = parse("> Hello\n\nWorld!");
+        // let result = parse("> Hello\n\nWorld!");
+        // let result = parse(">\n\nABC");
+        let result = parse(">ABC\n>\n>TWO\n"); // TODO
         dbg!(&result);
     }
 
@@ -351,7 +353,8 @@ mod tests {
         // let result = parse("# Hello\nWorld!");
         // let result = parse("abc\n# Hello\nWorld!");
         // let result = parse("abc\n\n## Hello\nWorld!");
-        let result = parse("# \n## Heading\n");
+        // let result = parse("# \n## Heading\n");
+        let result = parse("* \n# Heading"); // TODO
         dbg!(&result);
     }
 
@@ -373,7 +376,9 @@ mod tests {
         // let result = parse("> * List\n>   * List\n\nParagraph");
         // let result = parse("* List item\n\n  List item continuation");
         // let result = parse("* List item\n\nNot a list item");
-        let result = parse("* \n\n");
+        // let result = parse("* \n\n");
+        // let result = parse("> * A\n>   * B\n> ");
+        let result = parse("* \n* \n\nA");
         dbg!(&result);
     }
 

@@ -7,7 +7,9 @@ pub fn open(
     c: &Option<Token>,
 ) -> Option<(Link, usize)> {
     match parent.kind {
-        Kind::Empty | Kind::UnorderedList(..) | Kind::OrderedList(..) => return None,
+        Kind::Empty | Kind::BlockQuote | Kind::UnorderedList(..) | Kind::OrderedList(..) => {
+            return None
+        }
         Kind::Document => {
             // If a list cannot continue after an empty block, then we close the list.
             let last_child = parent.children.last().map(Rc::clone);

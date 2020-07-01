@@ -29,14 +29,6 @@ pub fn open(
 ) -> Option<(Link, usize)> {
     match (parent.kind, a, b, c) {
         // Unordered lists
-        (
-            k,
-            Some(Token::Asterisk((start, _))),
-            Some(Token::Whitespace((_, t))),
-            Some(Token::Newline((_, end))),
-        ) if is_ul_child(k, UnorderedListToken::Asterisk, *start, *t) => {
-            Some((Node::new(Kind::ListItem(t - start), *start), *end))
-        }
         (k, Some(Token::Asterisk((start, _))), Some(Token::Whitespace((_, end))), _)
         | (
             k,
@@ -46,14 +38,6 @@ pub fn open(
         ) if is_ul_child(k, UnorderedListToken::Asterisk, *start, *end) => {
             Some((Node::new(Kind::ListItem(end - start), *start), *end))
         }
-        (
-            k,
-            Some(Token::Dash((start, _))),
-            Some(Token::Whitespace((_, t))),
-            Some(Token::Newline((_, end))),
-        ) if is_ul_child(k, UnorderedListToken::Dash, *start, *t) => {
-            Some((Node::new(Kind::ListItem(t - start), *start), *end))
-        }
         (k, Some(Token::Dash((start, _))), Some(Token::Whitespace((_, end))), _)
         | (
             k,
@@ -62,14 +46,6 @@ pub fn open(
             Some(Token::Whitespace((_, end))),
         ) if is_ul_child(k, UnorderedListToken::Dash, *start, *end) => {
             Some((Node::new(Kind::ListItem(end - start), *start), *end))
-        }
-        (
-            k,
-            Some(Token::Plus((start, _))),
-            Some(Token::Whitespace((_, t))),
-            Some(Token::Newline((_, end))),
-        ) if is_ul_child(k, UnorderedListToken::Plus, *start, *t) => {
-            Some((Node::new(Kind::ListItem(t - start), *start), *end))
         }
         (k, Some(Token::Plus((start, _))), Some(Token::Whitespace((_, end))), _)
         | (
@@ -81,14 +57,6 @@ pub fn open(
             Some((Node::new(Kind::ListItem(end - start), *start), *end))
         }
         // Ordered lists
-        (
-            k,
-            Some(Token::NumDot((start, _))),
-            Some(Token::Whitespace((_, t))),
-            Some(Token::Newline((_, end))),
-        ) if is_ol_child(k, OrderedListToken::Dot, *start, *t) => {
-            Some((Node::new(Kind::ListItem(t - start), *start), *end))
-        }
         (k, Some(Token::NumDot((start, _))), Some(Token::Whitespace((_, end))), _)
         | (
             k,
@@ -97,14 +65,6 @@ pub fn open(
             Some(Token::Whitespace((_, end))),
         ) if is_ol_child(k, OrderedListToken::Dot, *start, *end) => {
             Some((Node::new(Kind::ListItem(end - start), *start), *end))
-        }
-        (
-            k,
-            Some(Token::NumParen((start, _))),
-            Some(Token::Whitespace((_, t))),
-            Some(Token::Newline((_, end))),
-        ) if is_ol_child(k, OrderedListToken::Paren, *start, *t) => {
-            Some((Node::new(Kind::ListItem(t - start), *start), *end))
         }
         (k, Some(Token::NumParen((start, _))), Some(Token::Whitespace((_, end))), _)
         | (
