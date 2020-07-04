@@ -1,5 +1,21 @@
 use super::*;
 
+pub fn probe(
+    parent: &Node,
+    _start: usize,
+    a: &Option<Token>,
+    b: &Option<Token>,
+    c: &Option<Token>,
+) -> Option<usize> {
+    match (parent.kind, a, b, c) {
+        (Kind::BlockQuote, Some(Token::Newline((_, end))), ..) => Some(*end),
+        (Kind::BlockQuote, Some(Token::Whitespace(..)), Some(Token::Newline((_, end))), _) => {
+            Some(*end)
+        }
+        _ => None,
+    }
+}
+
 pub fn open(
     parent: &mut Node,
     a: &Option<Token>,
@@ -7,9 +23,7 @@ pub fn open(
     c: &Option<Token>,
 ) -> Option<(Link, usize)> {
     match parent.kind {
-        Kind::Empty | Kind::BlockQuote | Kind::UnorderedList(..) | Kind::OrderedList(..) => {
-            return None
-        }
+        Kind::Empty | Kind::UnorderedList(..) | Kind::OrderedList(..) => return None,
         Kind::Document => {
             // If a list cannot continue after an empty block, then we close the list.
             let last_child = parent.children.last().map(Rc::clone);
@@ -76,6 +90,7 @@ fn find_last_empty(node: Link) -> Option<(Link, Link)> {
         borrow.kind
     } {
         Kind::ListItem(..) => true,
+        Kind::BlockQuote => true,
         Kind::UnorderedList(..) => true,
         Kind::OrderedList(..) => true,
         _ => false,

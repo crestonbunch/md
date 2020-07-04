@@ -130,6 +130,9 @@ impl Node {
     fn probe(&self, start: usize, source: &str) -> Option<usize> {
         let mut tokenizer = Tokenizer::new(start, source);
         let (a, b, c) = (tokenizer.next(), tokenizer.next(), tokenizer.next());
+        if let Some(p) = empty::probe(self, start, &a, &b, &c) {
+            return Some(p);
+        }
         if let Some(p) = paragraph::probe(self, start, &a, &b, &c) {
             return Some(p);
         }
@@ -297,10 +300,11 @@ pub fn parse(source: &str) -> Link {
         node = new_node;
         p = new_p;
 
-        if let Some(_) = {
+        if let Some(open) = {
             let mut borrow = node.borrow_mut();
             borrow.open(p, source)
         } {
+            dbg!(open);
             // We found a new block opener, so let's close any open blocks
             // before we open new ones.
             node.borrow().close_child(old_p);
@@ -344,7 +348,8 @@ mod tests {
         // let result = parse("> * Hello,\n> * World!");
         // let result = parse("> Hello\n\nWorld!");
         // let result = parse(">\n\nABC");
-        let result = parse(">ABC\n>\n>TWO\n"); // TODO
+        // let result = parse(">ABC\n>\n>TWO\n");
+        let result = parse("> A\n\nB"); // TODO
         dbg!(&result);
     }
 
@@ -375,10 +380,10 @@ mod tests {
         // let result = parse("* One list\n- Two list\n+ Three list");
         // let result = parse("> * List\n>   * List\n\nParagraph");
         // let result = parse("* List item\n\n  List item continuation");
-        // let result = parse("* List item\n\nNot a list item");
+        let result = parse("* List item\n\nNot a list item");
         // let result = parse("* \n\n");
         // let result = parse("> * A\n>   * B\n> ");
-        let result = parse("* \n* \n\nA");
+        // let result = parse("* \n* \n\nA");
         dbg!(&result);
     }
 
