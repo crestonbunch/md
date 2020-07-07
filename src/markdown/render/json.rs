@@ -68,7 +68,7 @@ impl N {
             Kind::Empty => render_container(K::Empty, source, node),
             Kind::UnorderedList(..) => render_container(K::UnorderedList, source, node),
             Kind::OrderedList(..) => render_container(K::OrderedList, source, node),
-            Kind::ListItem(..) => render_container(K::ListItem, source, node),
+            Kind::ListItem => render_container(K::ListItem, source, node),
             Kind::Heading(size) => render_heading(source, node, size),
             Kind::Paragraph => render_container(K::Paragraph, source, node),
             Kind::EmptyLine => render_inline(K::EmptyLine, source, node),
@@ -79,22 +79,23 @@ impl N {
 }
 
 fn render_container(kind: K, source: &str, node: Node) -> N {
-    let span = (node.start, node.end.unwrap());
+    let (start, end) = node.span;
     let children = render_children(source, node);
     N {
         kind,
-        span,
-        merkle: hash_n(kind, span, &children, &None),
+        span: (start, end),
+        merkle: hash_n(kind, (start, end), &children, &None),
         children,
         text: None,
     }
 }
 
 fn render_inline(kind: K, source: &str, node: Node) -> N {
-    let text = &source[node.start..node.end.unwrap()];
+    let (start, end) = node.span;
+    let text = &source[start..end];
     N {
         kind,
-        span: (node.start, node.end.unwrap()),
+        span: (start, end),
         merkle: hash_str(text),
         children: None,
         text: Some(text.into()),
@@ -107,7 +108,7 @@ fn render_children(source: &str, node: Node) -> Option<Vec<N>> {
         _ => Some(
             node.children
                 .into_iter()
-                .map(|n| N::new(source, Rc::try_unwrap(n).unwrap().into_inner()))
+                .map(|n| N::new(source, n))
                 .collect(),
         ),
     }

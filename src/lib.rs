@@ -26,6 +26,6 @@ impl Compiler {
 
     pub fn compile(&self, source: &str) -> String {
         let doc = markdown::parse(source);
-        markdown::json::render(source, Rc::try_unwrap(doc).unwrap().into_inner())
+        markdown::json::render(source, doc)
     }
 }
