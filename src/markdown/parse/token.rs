@@ -1,40 +1,35 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
-use crate::markdown::parse::{Kind, Node};
-
 const WHITESPACE_CHARS: [&str; 2] = [" ", "\t"];
 const NUMBER_CHARS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
-type Slice = (usize, usize);
+pub type Span = (usize, usize);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Token {
-    RightCaret(Slice),
-    Hash(Slice),
-    Dash(Slice),
-    Asterisk(Slice),
-    Plus(Slice),
-    NumDot(Slice),
-    NumParen(Slice),
-    Plaintext(Slice),
-    Whitespace(Slice),
-    Newline(Slice),
+    RightCaret(Span),
+    Hash(Span),
+    Dash(Span),
+    Asterisk(Span),
+    Plus(Span),
+    NumDot(Span),
+    NumParen(Span),
+    Plaintext(Span),
+    Whitespace(Span),
+    Newline(Span),
 }
 
-impl Into<Rc<RefCell<Node>>> for Token {
-    fn into(self) -> Rc<RefCell<Node>> {
+impl Token {
+    pub fn span(&self) -> Span {
         match self {
-            Token::RightCaret((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::Hash((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::Dash((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::Asterisk((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::Plus((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::NumParen((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::NumDot((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::Plaintext((start, end)) => Node::new_inline(Kind::Plaintext, start, end),
-            Token::Whitespace((start, end)) => Node::new_inline(Kind::Whitespace, start, end),
-            Token::Newline((start, end)) => Node::new_inline(Kind::EmptyLine, start, end),
+            Token::RightCaret(s) => *s,
+            Token::Hash(s) => *s,
+            Token::Dash(s) => *s,
+            Token::Asterisk(s) => *s,
+            Token::Plus(s) => *s,
+            Token::NumDot(s) => *s,
+            Token::NumParen(s) => *s,
+            Token::Plaintext(s) => *s,
+            Token::Whitespace(s) => *s,
+            Token::Newline(s) => *s,
         }
     }
 }
