@@ -83,15 +83,19 @@ peg::parser! {
                 let (start, end) = a[0].span();
                 end - start
             }
-        rule atx_heading() -> Node
-            = s:atx_start() sp() a:atx_inline()+ sp() newline() {
+        rule atx_heading() -> Vec<Node>
+            = s:atx_start() sp() a:atx_inline()+ b:blank_lines_eof() {
                 let (start, _) = a.first().unwrap().span;
                 let (_, end) = a.last().unwrap().span;
-                Node::new_block(Kind::Heading(s), start, end, a)
+                let n = Node::new_block(Kind::Heading(s), start, end, a);
+                match b {
+                    Some(b) => vec![n, b],
+                    None => vec![n],
+                }
             }
         rule heading() -> Vec<Node>
             = h:atx_heading()
-            { vec![h] }
+            { h }
 
         // Block quote
         rule block_quote_start() -> Vec<Token>
@@ -123,26 +127,25 @@ peg::parser! {
         // List
         rule bullet() -> usize
             = a:non_indent_space()
-              [Token::Plus(..) | Token::Asterisk(..) | Token::Dash(..)]
-              b:whitespace() {
-                let (a, _) = a.unwrap_or((0, 0));
-                let (_, b) = b.span;
-                b - a
+              b:$([Token::Plus(..) | Token::Asterisk(..) | Token::Dash(..)])
+              c:whitespace() {
+                let (a, _) = a.unwrap_or(b[0].span());
+                let (_, c) = c.span;
+                c - a
               }
         rule enumerator() -> usize
             = a:non_indent_space()
-              [Token::NumDot(..) | Token::NumParen(..)]
-              b:whitespace() {
-                let (a, _) = a.unwrap_or((0, 0));
-                let (_, b) = b.span;
-                b - a
+              b:$([Token::NumDot(..) | Token::NumParen(..)])
+              c:whitespace() {
+                let (a, _) = a.unwrap_or(b[0].span());
+                let (_, c) = c.span;
+                c - a
               }
         rule unordered_list() -> Vec<Node>
             = &bullet()
               a:(
                   b:list_tight() { (b, false) } /
-                  b:list_loose() { (b, true) } /
-                  b:list_empty() { (b, false) }
+                  b:list_loose() { (b, true) }
                 ) {
                 let (children, loose) = a;
                 let (start, _) = children.first().unwrap().span;
@@ -154,8 +157,7 @@ peg::parser! {
             = &enumerator()
               a:(
                   b:list_tight() { (b, false) } /
-                  b:list_loose() { (b, true) } /
-                  b:list_empty() { (b, false) }
+                  b:list_loose() { (b, true) }
                 ) {
                 let (children, loose) = a;
                 let (start, _) = children.first().unwrap().span;
@@ -164,13 +166,10 @@ peg::parser! {
                 vec![n]
             }
         rule list_tight() -> Vec<Node>
-            = a:list_item_tight()+
+            = a:(list_item_tight()+ / list_item_empty()+)
               blank_line()* !(bullet() / enumerator()) { a }
         rule list_loose() -> Vec<Node>
-            = a:(b:list_item() blank_line()* { b })+
-        rule list_empty() -> Vec<Node>
-            = a:list_item_empty()+
-              blank_line()* !(bullet() / enumerator()) { a }
+            = a:(b:(list_item() / list_item_empty()) blank_line()* { b })+
         rule list_item() -> Node
             = width:(bullet() / enumerator())
               a:list_block()
@@ -248,7 +247,7 @@ peg::parser! {
         rule inlines() -> Vec<Node>
             = v:(
               v:((!end_line() b:inline()+ { b })) /
-              v:(a:end_line() b:inline() {
+              v:(a:end_line() &inline() {
                   vec![Node::new(Kind::Whitespace, a.0, a.1)]
                 })
             )+
@@ -303,7 +302,8 @@ peg::parser! {
               !blank_line()
               !block_quote_start()
               !atx_start()
-              !bullet() {
+              !bullet()
+              !enumerator() {
                 a.map(|span| {
                     let (s, _) = span;
                     let (_, e) = b;
@@ -387,22 +387,23 @@ mod test {
     fn test_simple() {
         // dbg!(parse("ABC"));
         // dbg!(parse("Hello,\nWorld!\n\n"));
-        dbg!(parse("A \n"));
+        // dbg!(parse("A \n"));
+        dbg!(parse("dolor\nlabore"));
     }
 
     #[test]
     fn test_heading() {
         // let result = parse("# Hello\nWorld!\n\n");
         // let result = parse("abc\n# Hello\nWorld!\n\n");
-        let result = parse("abc\n\n## Hello\nWorld!\n\n");
+        // let result = parse("abc\n\n## Hello\nWorld!\n\n");
         // let result = parse("# \n## Heading\n\n\n");
-        // let result = parse("* \n# Heading\n\n"); // TODO
+        let result = parse("* \n# Heading\n\n");
         dbg!(&result);
     }
 
     #[test]
     fn test_block_quote() {
-        let result = parse(">\n\n");
+        // let result = parse(">\n\n");
         // let result = parse("> Hello");
         // let result = parse("> Hello,\nWorld!\n\n");
         // let result = parse("> A\n>B\n>\n>\n");
@@ -411,14 +412,14 @@ mod test {
         // let result = parse("> Hello\n\nWorld!");
         // let result = parse(">\n\nABC");
         // let result = parse(">ABC\n>\n>TWO\n");
-        // let result = parse("> A\n\nB"); // TODO
+        let result = parse("> A\n\nB");
         dbg!(&result);
     }
 
     #[test]
     fn test_unordered_lists() {
         // let result = parse("* A\n* B");
-        // let result = parse("A\n* B");
+        let result = parse("A\n* B");
         // let result = parse("* A\n  * B");
         // let result = parse("* List item\n\n* Second list item");
         // let result = parse("* List item\n\n   * Second list item");
@@ -430,8 +431,9 @@ mod test {
         // let result = parse("* \n\n");
         // let result = parse("* \nABC");
         // let result = parse("* \n* \nABC");
+        // let result = parse("* A \n* \nABC");
         // let result = parse("* \n\n* \n\nABC");
-        let result = parse("* A \n\n");
+        // let result = parse("* A \n\n");
         // let result = parse("> * A\n>   * B\n> ");
         // let result = parse("* \n* \n\nA");
         dbg!(&result);
@@ -439,7 +441,10 @@ mod test {
 
     #[test]
     fn test_ordered_lists() {
-        let result = parse("1. A\n1. B");
+        // let result = parse("1. A\n1. B");
+        // let result = parse("A\n1. B");
+        let result = parse("1. A\n1. B\n   1. B");
+
         // let result = parse("1. List item\n\n1. Second list item");
         // let result = parse("1. \n\n1. \n\n");
         dbg!(&result);
