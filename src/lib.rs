@@ -1,8 +1,6 @@
 #![feature(test)]
 #![feature(or_patterns)]
 
-use std::rc::Rc;
-
 mod markdown;
 mod utils;
 
