@@ -247,15 +247,14 @@ peg::parser! {
         // Inlines
         rule inlines() -> Vec<Node>
             = v:(
-                    (!end_line() b:inline() { b }) /
-                    (a:end_line() &inline() {
-                        let (start, end) = a;
-                        Node::new(Kind::Whitespace, start, end)
-                    })
-                )+
+              v:((!end_line() b:inline()+ { b })) /
+              v:(a:end_line() b:inline() {
+                  vec![Node::new(Kind::Whitespace, a.0, a.1)]
+                })
+            )+
             end_line()?
             eof()?
-            { v }
+            { v.into_iter().flatten().collect() }
         rule inline() -> Node
             = plaintext() /
               whitespace()
@@ -387,7 +386,8 @@ mod test {
     #[test]
     fn test_simple() {
         // dbg!(parse("ABC"));
-        dbg!(parse("Hello,\nWorld!\n\n"));
+        // dbg!(parse("Hello,\nWorld!\n\n"));
+        dbg!(parse("A \n"));
     }
 
     #[test]
@@ -430,7 +430,8 @@ mod test {
         // let result = parse("* \n\n");
         // let result = parse("* \nABC");
         // let result = parse("* \n* \nABC");
-        let result = parse("* \n\n* \n\nABC");
+        // let result = parse("* \n\n* \n\nABC");
+        let result = parse("* A \n\n");
         // let result = parse("> * A\n>   * B\n> ");
         // let result = parse("* \n* \n\nA");
         dbg!(&result);
