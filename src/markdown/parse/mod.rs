@@ -105,13 +105,24 @@ peg::parser! {
         rule block_quote() -> Vec<Node>
             = x:block_quote_start() a:line()
               b:(
-                [Token::RightCaret(..)] [Token::Whitespace(..)]? c:line() { c } /
-                ![Token::RightCaret(..)] !blank_line() c:line() { c }
+                [Token::RightCaret(..)] b:$([Token::Whitespace(..)])? c:line() { (b, c) } /
+                ![Token::RightCaret(..)] !blank_line() c:line() { (None, c) }
               )*
               c:blank_lines_eof()
               {
+                let b = b.into_iter().map(|(b, line)| {
+                    match b {
+                        Some([Token::Whitespace((s, e)), ..]) if *s < e - 1 => {
+                            // Trim off exactly one space character from each line
+                            // leaving the remaining whitespace to be included in
+                            // the parsed body of the block quote
+                            [vec![Token::Whitespace((s + 1, *e))], line].concat()
+                        },
+                        _ => line,
+                    }
+                });
                 let (start, _) = x[0].span();
-                let s = [a, b.into_iter().flatten().collect()].concat();
+                let s = [a, b.flatten().collect()].concat();
                 let (_, end) = (&c)
                     .as_ref()
                     .map(|n| n.span)
@@ -144,32 +155,39 @@ peg::parser! {
         rule unordered_list() -> Vec<Node>
             = &bullet()
               a:(
-                  b:list_tight() { (b, false) } /
-                  b:list_loose() { (b, true) }
-                ) {
+                b:list_tight() { (b, false) } /
+                b:list_loose() { (b, true) }
+              )
+              b:blank_lines_eof()? !bullet() {
                 let (children, loose) = a;
                 let (start, _) = children.first().unwrap().span;
                 let (_, end) = children.last().unwrap().span;
                 let n = Node::new_block(Kind::UnorderedList(loose), start, end, children);
-                vec![n]
+                match b.flatten() {
+                    Some(b) => vec![n, b],
+                    None => vec![n],
+                }
             }
         rule ordered_list() -> Vec<Node>
             = &enumerator()
               a:(
                   b:list_tight() { (b, false) } /
                   b:list_loose() { (b, true) }
-                ) {
+                )
+              b:blank_lines_eof()? !enumerator() {
                 let (children, loose) = a;
                 let (start, _) = children.first().unwrap().span;
                 let (_, end) = children.last().unwrap().span;
                 let n = Node::new_block(Kind::OrderedList(loose), start, end, children);
-                vec![n]
+                match b.flatten() {
+                    Some(b) => vec![n, b],
+                    None => vec![n],
+                }
             }
         rule list_tight() -> Vec<Node>
-            = a:(list_item_tight()+ / list_item_empty()+)
-              blank_line()* !(bullet() / enumerator()) { a }
+            = (list_item_tight() / list_item_empty())+
         rule list_loose() -> Vec<Node>
-            = a:(b:(list_item() / list_item_empty()) blank_line()* { b })+
+            = (list_item() / list_item_empty())+
         rule list_item() -> Node
             = width:(bullet() / enumerator())
               a:list_block()
@@ -193,7 +211,8 @@ peg::parser! {
               }
         rule list_item_empty() -> Node
             = width:(bullet() / enumerator())
-              a:blank_lines() {
+              // TODO: figure out how to incorporate eof() as well
+              a:blank_line() {
                 let (start, _) = a.span;
                 let (_, end) = a.span;
                 Node::new_block(Kind::ListItem, start, end, vec![a])
@@ -409,17 +428,20 @@ mod test {
         // let result = parse("> A\n>B\n>\n>\n");
         // let result = parse("A\n> B\n");
         // let result = parse("> * Hello,\n> * World!\n\n");
+        // let result = parse("> * A\n>   * B\n> \n> \n\n");
+        let result = parse("> * A\n>   * B\n>   * \n\n");
         // let result = parse("> Hello\n\nWorld!");
         // let result = parse(">\n\nABC");
         // let result = parse(">ABC\n>\n>TWO\n");
-        let result = parse("> A\n\nB");
+        // let result = parse("> A\n\nB");
         dbg!(&result);
     }
 
     #[test]
     fn test_unordered_lists() {
         // let result = parse("* A\n* B");
-        let result = parse("A\n* B");
+        // let result = parse("A\n* B");
+        let result = parse("* A\n  * B\n  * \n\n");
         // let result = parse("* A\n  * B");
         // let result = parse("* List item\n\n* Second list item");
         // let result = parse("* List item\n\n   * Second list item");
