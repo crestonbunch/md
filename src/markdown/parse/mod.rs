@@ -3,7 +3,7 @@ mod token;
 use peg;
 use token::{Span, Token, Tokenizer};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Kind {
     // Container block tokens
     Document,
@@ -21,7 +21,7 @@ pub enum Kind {
     Whitespace,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Node {
     pub kind: Kind,
     pub span: (usize, usize),
@@ -78,35 +78,45 @@ peg::parser! {
         // Heading
         rule atx_inline() -> Node
             = !newline() x:inline() { x }
-        rule atx_start() -> usize
-            = a:$([Token::Hash((a, b)) if (b - a) <= 6]) {
-                let (start, end) = a[0].span();
-                end - start
+        rule atx_start() -> Span
+            = a:$([Token::Hash((a, b)) if (b - a) <= 6]) { a[0].span() }
+        rule atx_empty() -> Vec<Node>
+            = s:atx_start() t:sp() !atx_inline() b:blank_lines_eof() {
+                let (x, start) = t.unwrap_or(s);
+                let (_, end) = (&b).as_ref().map(|b| b.span).unwrap_or((x, start));
+                let n = Node::new(Kind::Heading(s.1 - s.0), start, end);
+                match b {
+                    Some(b) => vec![n, b],
+                    None => vec![n],
+                }
             }
         rule atx_heading() -> Vec<Node>
-            = s:atx_start() sp() a:atx_inline()+ b:blank_lines_eof() {
-                let (start, _) = a.first().unwrap().span;
-                let (_, end) = a.last().unwrap().span;
-                let n = Node::new_block(Kind::Heading(s), start, end, a);
+            = s:atx_start() t:ws() a:atx_inline()* b:blank_lines_eof() {
+                let (_, x) = t;
+                let (_, y) = (&b).as_ref().map(|b| b.span).unwrap_or(t);
+                let start = a.first().map(|a| a.span.0).unwrap_or(x);
+                let end = a.last().map(|y| y.span.1).unwrap_or(y);
+                let n = Node::new_block(Kind::Heading(s.1 - s.0), start, end, a);
                 match b {
                     Some(b) => vec![n, b],
                     None => vec![n],
                 }
             }
         rule heading() -> Vec<Node>
-            = h:atx_heading()
+            = h:atx_heading() / h:atx_empty()
             { h }
 
         // Block quote
         rule block_quote_start() -> Vec<Token>
-            = x:$([Token::RightCaret(..)] [Token::Whitespace(..)]?) {
-                Vec::from(x)
-            }
+            =  z:non_indent_space()?
+               x:$([Token::RightCaret(..)] [Token::Whitespace(..)]?) {
+                   Vec::from(x)
+               }
         rule block_quote() -> Vec<Node>
             = x:block_quote_start() a:line()
               b:(
-                [Token::RightCaret(..)] b:$([Token::Whitespace(..)])? c:line() { (b, c) } /
-                ![Token::RightCaret(..)] !blank_line() c:line() { (None, c) }
+                non_indent_space()? [Token::RightCaret(..)] b:$([Token::Whitespace(..)])? c:line() { (b, c) } /
+                non_indent_space()? ![Token::RightCaret(..)] !blank_line() c:line() { (None, c) }
               )*
               c:blank_lines_eof()
               {
@@ -123,10 +133,7 @@ peg::parser! {
                 });
                 let (start, _) = x[0].span();
                 let s = [a, b.flatten().collect()].concat();
-                let (_, end) = (&c)
-                    .as_ref()
-                    .map(|n| n.span)
-                    .unwrap_or(s.last().unwrap().span());
+                let (_, end) = s.last().map(|n| n.span()).unwrap_or(x[0].span());
                 let sub = md_parser::doc(&s).unwrap();
                 let bq = Node::new_block(Kind::BlockQuote, start, end, sub.children);
                 match c {
@@ -185,9 +192,9 @@ peg::parser! {
                 }
             }
         rule list_tight() -> Vec<Node>
-            = (list_item_tight() / list_item_empty())+
+            = (list_item_tight())+
         rule list_loose() -> Vec<Node>
-            = (list_item() / list_item_empty())+
+            = (list_item())+
         rule list_item() -> Node
             = width:(bullet() / enumerator())
               a:list_block()
@@ -209,16 +216,8 @@ peg::parser! {
                 let sub = md_parser::doc(&s).unwrap();
                 Node::new_block(Kind::ListItem, start, end, sub.children)
               }
-        rule list_item_empty() -> Node
-            = width:(bullet() / enumerator())
-              // TODO: figure out how to incorporate eof() as well
-              a:blank_line() {
-                let (start, _) = a.span;
-                let (_, end) = a.span;
-                Node::new_block(Kind::ListItem, start, end, vec![a])
-            }
         rule list_block() -> Vec<Token>
-            = !blank_line() a:line() b:list_block_line()* {
+            = a:line() b:list_block_line()* {
                 [a, b.into_iter().flatten().collect()].concat()
             }
         rule list_continuation_indent(width: usize) -> Option<Token>
@@ -307,8 +306,9 @@ peg::parser! {
                 Node::new_block(Kind::Empty, start, end, a)
             }
         rule blank_line() -> Node
-            = sp() a:newline() {
-                let (start, end) = a;
+            = a:sp() b:newline() {
+                let (start, _) = a.unwrap_or(b);
+                let (_, end) = b;
                 Node::new(Kind::EmptyLine, start, end)
             }
 
@@ -351,6 +351,12 @@ peg::parser! {
                     let (_, e) = a.last().unwrap().span();
                     (s, e)
                 })
+            }
+        rule ws() -> Span
+            = a:$([Token::Whitespace(..)]) {
+                let (s, _) = a.first().unwrap().span();
+                let (_, e) = a.last().unwrap().span();
+                (s, e)
             }
         rule non_indent_space() -> Option<Span>
             = a:$([Token::Whitespace((start, end)) if (end - start) < 4])? {
@@ -396,28 +402,124 @@ mod test {
     use super::*;
     use test::Bencher;
 
-    #[test]
-    fn test_empty() {
-        // dbg!(parse(""));
-        dbg!(parse("\n"));
+    macro_rules! doc {
+        ($start:literal $end:literal $($child:expr )*) => {
+           Node::new_block(Kind::Document, $start, $end, vec![$($child),*])
+        };
+    }
+
+    macro_rules! empty {
+        ($start:literal $end:literal $($child:expr )*) => (
+           Node::new_block(Kind::Empty, $start, $end, vec![$($child),*]);
+        );
+    }
+
+    macro_rules! empty_line {
+        ($start:literal $end:literal $($child:expr )*) => (
+           Node::new_block(Kind::EmptyLine, $start, $end, vec![$($child),*]);
+        );
+    }
+
+    macro_rules! p {
+        ($start:literal $end:literal $($child:expr )*) => {
+            Node::new_block(Kind::Paragraph, $start, $end, vec![$($child),*])
+        };
+    }
+
+    macro_rules! ws {
+        ($start:literal $end:literal) => {
+            Node::new(Kind::Whitespace, $start, $end)
+        };
+    }
+
+    macro_rules! plain {
+        ($start:literal $end:literal) => {
+            Node::new(Kind::Plaintext, $start, $end)
+        };
+    }
+
+    macro_rules! h {
+        (# $start:literal $end:literal $($child:expr )*) => {
+            Node::new_block(Kind::Heading(1), $start, $end, vec![$($child),*])
+        };
+        (## $start:literal $end:literal $($child:expr )*) => {
+            Node::new_block(Kind::Heading(2), $start, $end, vec![$($child),*])
+        };
     }
 
     #[test]
-    fn test_simple() {
-        // dbg!(parse("ABC"));
-        // dbg!(parse("Hello,\nWorld!\n\n"));
-        // dbg!(parse("A \n"));
-        dbg!(parse("dolor\nlabore"));
+    fn test_empty() {
+        assert_eq!(parse(""), doc!(0 0));
+        assert_eq!(parse("\n"), doc!(0 1 empty!(0 1 empty_line!(0 1))));
+        assert_eq!(
+            parse("\n\n"),
+            doc!(0 2 empty!(0 2 empty_line!(0 1) empty_line!(1 2)))
+        );
+        assert_eq!(parse("   \n"), doc!(0 4 empty!(0 4 empty_line!(0 4))));
+    }
+
+    #[test]
+    fn test_plaintext() {
+        assert_eq!(parse("ABC"), doc!(0 3 p!(0 3 plain!(0 3))));
+        assert_eq!(
+            parse("Hello,\nWorld!"),
+            doc!(0 13 p!(0 13 plain!(0 6) ws!(6 7) plain!(7 13)))
+        );
+        // TODO: should doc end at 3?
+        assert_eq!(parse("A \n"), doc!(0 2 p!(0 2 plain!(0 1) ws!(1 2))));
     }
 
     #[test]
     fn test_heading() {
-        // let result = parse("# Hello\nWorld!\n\n");
-        // let result = parse("abc\n# Hello\nWorld!\n\n");
-        // let result = parse("abc\n\n## Hello\nWorld!\n\n");
-        // let result = parse("# \n## Heading\n\n\n");
-        let result = parse("* \n# Heading\n\n");
-        dbg!(&result);
+        assert_eq!(parse("# Hello"), doc!(0 7 h!(# 2 7 plain!(2 7))));
+        assert_eq!(
+            parse("# Hello\nWorld!"),
+            doc!(0 14
+                h!(# 2 7 plain!(2 7))
+                // TODO: these aren't empty lines
+                empty!(7 8 empty_line!(7 8))
+                p!(8 14 plain!(8 14))
+            )
+        );
+        assert_eq!(
+            parse("Hello\n# World\n\n"),
+            doc!(0 15
+                p!(0 5 plain!(0 5))
+                empty!(5 6 empty_line!(5 6))
+                h!(# 8 13 plain!(8 13))
+                empty!(13 15 empty_line!(13 14) empty_line!(14 15))
+            )
+        );
+        assert_eq!(
+            parse("# Hello\n## World"),
+            doc!(
+                0 16
+                h!(# 2 7 plain!(2 7))
+                empty!(7 8 empty_line!(7 8))
+                h!(## 11 16 plain!(11 16))
+            )
+        );
+        assert_eq!(
+            parse("# \n## A B C"),
+            doc!(
+                0 11
+                h!(# 2 3)
+                empty!(2 3 empty_line!(2 3))
+                h!(## 6 11 plain!(6 7) ws!(7 8) plain!(8 9) ws!(9 10) plain!(10 11))
+            )
+        );
+        assert_eq!(
+            parse("#\n#A"),
+            doc!(
+                0 4
+                h!(# 1 2)
+                empty!(1 2 empty_line!(1 2))
+                // TODO: should we merge adjacent plaintext tokens?
+                p!(2 4 plain!(2 3) plain!(3 4))
+            )
+        );
+        // let result = parse("* \n# Heading\n\n");
+        // dbg!(&result);
     }
 
     #[test]
@@ -441,7 +543,9 @@ mod test {
     fn test_unordered_lists() {
         // let result = parse("* A\n* B");
         // let result = parse("A\n* B");
-        let result = parse("* A\n  * B\n  * \n\n");
+        // let result = parse("* A\n  * B\n  * \n\n");
+        // let result = parse("* A\n* \n  * B");
+        let result = parse("* >A\n  >B");
         // let result = parse("* A\n  * B");
         // let result = parse("* List item\n\n* Second list item");
         // let result = parse("* List item\n\n   * Second list item");
@@ -465,7 +569,9 @@ mod test {
     fn test_ordered_lists() {
         // let result = parse("1. A\n1. B");
         // let result = parse("A\n1. B");
-        let result = parse("1. A\n1. B\n   1. B");
+        // let result = parse("1. A\n1. B\n   1. B");
+        // let result = parse("1.  A\n   1. B");
+        let result = parse("1. A\n\n1. B"); // TODO
 
         // let result = parse("1. List item\n\n1. Second list item");
         // let result = parse("1. \n\n1. \n\n");
