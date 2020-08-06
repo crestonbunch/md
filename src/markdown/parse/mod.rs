@@ -162,48 +162,59 @@ peg::parser! {
         rule unordered_list() -> Vec<Node>
             = &bullet()
               a:(
-                b:list_tight() { (b, false) } /
-                b:list_loose() { (b, true) }
-              )
-              b:blank_lines_eof()? !bullet() {
-                let (children, loose) = a;
-                let (start, _) = children.first().unwrap().span;
-                let (_, end) = children.last().unwrap().span;
-                let n = Node::new_block(Kind::UnorderedList(loose), start, end, children);
-                match b.flatten() {
-                    Some(b) => vec![n, b],
-                    None => vec![n],
-                }
-            }
+                b:list_tight(false, false) /
+                b:list_loose(false, true)
+              ) { a }
         rule ordered_list() -> Vec<Node>
             = &enumerator()
               a:(
-                  b:list_tight() { (b, false) } /
-                  b:list_loose() { (b, true) }
-                )
-              b:blank_lines_eof()? !enumerator() {
-                let (children, loose) = a;
-                let (start, _) = children.first().unwrap().span;
-                let (_, end) = children.last().unwrap().span;
-                let n = Node::new_block(Kind::OrderedList(loose), start, end, children);
+                b:list_tight(true, false) /
+                b:list_loose(true, true)
+              ) { a }
+        rule list_tight(ol: bool, loose: bool) -> Vec<Node>
+            = a:(list_item_tight())+
+              b:blank_lines_eof()? !bullet() !enumerator() {
+                let (start, _) = a.first().unwrap().span;
+                let (_, end) = a.last().unwrap().span;
+                let kind = match ol {
+                    false => Kind::UnorderedList(loose),
+                    true => Kind::OrderedList(loose),
+                };
+                let n = Node::new_block(kind, start, end, a);
                 match b.flatten() {
                     Some(b) => vec![n, b],
                     None => vec![n],
                 }
-            }
-        rule list_tight() -> Vec<Node>
-            = (list_item_tight())+
-        rule list_loose() -> Vec<Node>
-            = (list_item())+
+              }
+        rule list_loose(ol: bool, loose: bool) -> Vec<Node>
+            = a:list_item()+
+             {
+                let (start, _) = a.first().unwrap().span;
+                let (_, end) = a.last().unwrap().span;
+                let kind = match ol {
+                    false => Kind::UnorderedList(loose),
+                    true => Kind::OrderedList(loose),
+                };
+                vec![Node::new_block(kind, start, end, a)]
+              }
         rule list_item() -> Node
             = width:(bullet() / enumerator())
               a:list_block()
-              b:(list_continuation_block(width)*) {
+              b:(list_continuation_block(width)*)
+              c:blank_lines_eof()? {
                 let s = [a, b.into_iter().flatten().collect()].concat();
                 let (start, _) = s.first().unwrap().span();
                 let (_, end) = s.last().unwrap().span();
-                let sub = md_parser::doc(&s).unwrap();
-                Node::new_block(Kind::ListItem, start, end, sub.children)
+                let mut sub = md_parser::doc(&s).unwrap();
+                let (children, end) = match c.flatten() {
+                    Some(c) => {
+                        let end = c.span.1;
+                        sub.children.push(c);
+                        (sub.children, end)
+                    },
+                    None => (sub.children, end)
+                };
+                Node::new_block(Kind::ListItem, start, end, children)
               }
         rule list_item_tight() -> Node
             = width:(bullet() / enumerator())
@@ -447,6 +458,38 @@ mod test {
         };
     }
 
+    macro_rules! bq {
+        ($start:literal $end:literal $($child:expr )*) => {
+            Node::new_block(Kind::BlockQuote, $start, $end, vec![$($child),*])
+        };
+    }
+
+    macro_rules! ul {
+        ($start:literal $end:literal $($child:expr )*) => {
+            Node::new_block(Kind::UnorderedList(false), $start, $end, vec![$($child),*])
+        };
+
+        (t $start:literal $end:literal $($child:expr )*) => {
+            Node::new_block(Kind::UnorderedList(true), $start, $end, vec![$($child),*])
+        };
+    }
+
+    macro_rules! ol {
+        ($start:literal $end:literal $($child:expr )*) => {
+            Node::new_block(Kind::OrderedList(false), $start, $end, vec![$($child),*])
+        };
+
+        (true $start:literal $end:literal $($child:expr )*) => {
+            Node::new_block(Kind::OrderedList(true), $start, $end, vec![$($child),*])
+        };
+    }
+
+    macro_rules! li {
+        ($start:literal $end:literal $($child:expr )*) => {
+            Node::new_block(Kind::ListItem, $start, $end, vec![$($child),*])
+        };
+    }
+
     #[test]
     fn test_empty() {
         assert_eq!(parse(""), doc!(0 0));
@@ -518,8 +561,15 @@ mod test {
                 p!(2 4 plain!(2 3) plain!(3 4))
             )
         );
-        // let result = parse("* \n# Heading\n\n");
-        // dbg!(&result);
+        assert_eq!(
+            parse("* \n# Heading\n\n"),
+            doc!(
+                0 14
+                ul!(0 3 li!(2 3))
+                h!(# 5 12)
+                empty!(12 14 empty_line!(12 13) empty_line!(13 14))
+            )
+        )
     }
 
     #[test]
@@ -545,7 +595,7 @@ mod test {
         // let result = parse("A\n* B");
         // let result = parse("* A\n  * B\n  * \n\n");
         // let result = parse("* A\n* \n  * B");
-        let result = parse("* >A\n  >B");
+        // let result = parse("* >A\n  >B");
         // let result = parse("* A\n  * B");
         // let result = parse("* List item\n\n* Second list item");
         // let result = parse("* List item\n\n   * Second list item");
@@ -562,7 +612,43 @@ mod test {
         // let result = parse("* A \n\n");
         // let result = parse("> * A\n>   * B\n> ");
         // let result = parse("* \n* \n\nA");
-        dbg!(&result);
+        // dbg!(&result);
+
+        assert_eq!(
+            parse("* \n* A"),
+            doc!(
+                0 6
+                ul!(2 6
+                    li!(2 3
+                        // TODO: is this really an empty line?
+                        empty!(2 3 empty_line!(2 3))
+                    )
+                    li!(5 6 p!(5 6 plain!(5 6)))
+                )
+            )
+        );
+        assert_eq!(
+            parse("* \n  * A"),
+            doc!(
+                0 8
+                ul!(2 8
+                    li!(2 8
+                        empty!(2 3 empty_line!(2 3))
+                        ul!(7 8 li!(7 8 p!(7 8 plain!(7 8))))
+                    )
+                )
+            )
+        );
+        assert_eq!(
+            parse("* A\n\n* B"),
+            doc!(0 8 ul!(t 2 8
+                li!(2 5
+                    p!(2 3 plain!(2 3))
+                    empty!(4 5 empty_line!(4 5)) // TODO: two empty lines?
+                )
+                li!(7 8 p!(7 8 plain!(7 8)))
+            ))
+        );
     }
 
     #[test]
