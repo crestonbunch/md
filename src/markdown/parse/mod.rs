@@ -77,7 +77,9 @@ peg::parser! {
 
         // Heading
         rule atx_inline() -> Node
-            = !newline() x:inline() { x }
+            = !newline() x:(
+                non_continuing_text()
+            ) { x }
         rule atx_start() -> Span
             = a:$([Token::Hash((a, b)) if (b - a) <= 6]) { a[0].span() }
         rule atx_empty() -> Vec<Node>
@@ -274,18 +276,31 @@ peg::parser! {
 
         // Inlines
         rule inlines() -> Vec<Node>
-            = v:(
-              v:((!end_line() b:inline()+ { b })) /
-              v:(a:end_line() &inline() {
-                  vec![Node::new(Kind::Whitespace, a.0, a.1)]
-                })
-            )+
+            = v:(!end_line() b:inline()+ { b })+
             end_line()?
             eof()?
             { v.into_iter().flatten().collect() }
         rule inline() -> Node
-            = plaintext() /
-              whitespace()
+            = text()
+
+        rule text() -> Node
+            = a:(
+                non_continuing_text() /
+                continuation()
+            )+ {
+              let (start, _) = a.first().unwrap().span;
+              let (_, end) = a.last().unwrap().span;
+              Node::new(Kind::Plaintext, start, end)
+            }
+        rule non_continuing_text() -> Node
+            = a:(
+                plaintext() /
+                whitespace()
+            )+ {
+              let (start, _) = a.first().unwrap().span;
+              let (_, end) = a.last().unwrap().span;
+              Node::new(Kind::Plaintext, start, end)
+            }
 
         rule plaintext() -> Node
             = a:$[
@@ -306,6 +321,10 @@ peg::parser! {
                 let (start, _) = a.first().unwrap().span();
                 let (_, end) = a.last().unwrap().span();
                 Node::new(Kind::Whitespace, start, end)
+            }
+        rule continuation() -> Node
+            = a:end_line() &inline() {
+                Node::new(Kind::Whitespace, a.0, a.1)
             }
 
         rule blank_lines_eof() -> Option<Node>
@@ -504,12 +523,9 @@ mod test {
     #[test]
     fn test_plaintext() {
         assert_eq!(parse("ABC"), doc!(0 3 p!(0 3 plain!(0 3))));
-        assert_eq!(
-            parse("Hello,\nWorld!"),
-            doc!(0 13 p!(0 13 plain!(0 6) ws!(6 7) plain!(7 13)))
-        );
+        assert_eq!(parse("Hello,\nWorld!"), doc!(0 13 p!(0 13 plain!(0 13))));
         // TODO: should doc end at 3?
-        assert_eq!(parse("A \n"), doc!(0 2 p!(0 2 plain!(0 1) ws!(1 2))));
+        assert_eq!(parse("A \n"), doc!(0 2 p!(0 2 plain!(0 2))));
     }
 
     #[test]
@@ -548,7 +564,7 @@ mod test {
                 0 11
                 h!(# 2 3)
                 empty!(2 3 empty_line!(2 3))
-                h!(## 6 11 plain!(6 7) ws!(7 8) plain!(8 9) ws!(9 10) plain!(10 11))
+                h!(## 6 11 plain!(6 11))
             )
         );
         assert_eq!(
@@ -558,7 +574,7 @@ mod test {
                 h!(# 1 2)
                 empty!(1 2 empty_line!(1 2))
                 // TODO: should we merge adjacent plaintext tokens?
-                p!(2 4 plain!(2 3) plain!(3 4))
+                p!(2 4 plain!(2 4))
             )
         );
         assert_eq!(
